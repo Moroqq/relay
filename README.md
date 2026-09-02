@@ -14,7 +14,7 @@ Building the spine: one real payment end to end on the Nile testnet.
 | Payment + webhook state machines (`@relay/core`) | done, 9 tests |
 | Settlement & fee split (`@relay/core`) | done, 12 tests |
 | Deposit address derivation (`@relay/wallet`) | done, 13 tests |
-| Database schema + ledger | next |
+| Database schema + double-entry ledger | done, 17 integration tests |
 | TRON block indexer | next |
 | Merchant API | next |
 | Webhook delivery worker | next |
@@ -28,7 +28,10 @@ npm install
 docker compose up -d          # postgres on :5433, redis on :6380
 cp .env.example .env
 npm run wallet:new-mnemonic   # generate a master seed, put it in .env
-npm test
+npm run db:migrate            # apply the schema
+
+npm test                      # unit tests, no dependencies
+npm run test:db               # integration tests, needs the containers
 npm run build
 ```
 
@@ -41,6 +44,22 @@ most custody licences forbid earning on client balances in the first place. But
 every movement is still written to a double-entry ledger from day one, because
 retrofitting one into a live payment system is months of work and guaranteed
 discrepancies. Switching to custodial later is a policy change, not a rewrite.
+
+**The ledger enforces itself in the database.** Every movement of money is
+recorded as entries whose signed amounts sum to zero, per asset, checked by a
+deferred constraint trigger at commit time. Entries are append-only: a mistake
+is corrected with a reversing entry, never an edit. These rules live in
+Postgres rather than in application code because application code can be
+bypassed by a migration, an admin script, or a hurried manual fix at 3am — and
+the one guarantee a payment platform cannot afford to lose is that its books
+add up.
+
+**Deposit addresses are never reused.** One address serves one payment and is
+then retired. Reuse would make two equal transfers to the same address
+impossible to tell apart, and derivation costs nothing.
+
+**Pricing is frozen onto each payment at creation.** Changing a project's fee
+must not rewrite what an in-flight payment already agreed to.
 
 **Payment state and webhook state are separate machines.** A payment whose
 funds are confirmed on-chain is settled, permanently, whatever the merchant's
@@ -76,10 +95,11 @@ during development is a throwaway — never reuse a development seed on mainnet.
 ```
 packages/core      money, state machines, settlement rules
 packages/wallet    BIP44 deposit address derivation
+db/migrations      schema, applied by scripts/migrate.mjs
+test/              integration tests against a live database
 services/api       merchant-facing HTTP API            (empty)
 services/indexer   TRON block watcher                  (empty)
 services/webhooks  delivery worker with retries        (empty)
-db/migrations      schema                              (empty)
 ```
 
 ## Design reference
