@@ -1,0 +1,26 @@
+{
+  "name": "relay",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Relay — TRON payment infrastructure",
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean",
+    "test": "node --test",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "wallet:new-mnemonic": "node scripts/new-mnemonic.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tronweb": "^6.5.0",
+    "typescript": "^5.7.2"
+  }
+}
