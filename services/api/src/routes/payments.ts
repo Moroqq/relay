@@ -4,11 +4,10 @@
 
 import type { FastifyInstance } from 'fastify';
 import { MoneyError, isAsset, parseAmount, type Asset } from '@relay/core';
-import { createPayment, findPayment, listPayments, PaymentError } from '@relay/db';
+import { createPayment, findPayment, listPayments, serializePayment, PaymentError } from '@relay/db';
 import type { DepositWallet } from '@relay/wallet';
 
 import { ApiError, badRequest, notFound } from '../errors.ts';
-import { serializePayment } from '../serialize.ts';
 
 interface RouteOptions {
   readonly wallet: DepositWallet;

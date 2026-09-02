@@ -30,14 +30,14 @@ export interface PaymentRecord {
   readonly settledAt: Date | null;
 }
 
-const PAYMENT_COLUMNS = `
+export const PAYMENT_COLUMNS = `
   id, project_id, external_ref, asset, expected_units, received_units, state,
   deposit_address, confirmations, required_confirmations,
   fee_rate_bps, fee_flat_units, fee_units, net_units,
   created_at, expires_at, settled_at
 `;
 
-function mapPayment(row: Record<string, unknown>): PaymentRecord {
+export function mapPayment(row: Record<string, unknown>): PaymentRecord {
   return Object.freeze({
     id: row['id'] as string,
     projectId: row['project_id'] as string,

@@ -6,7 +6,9 @@ the merchant.
 
 ## Status
 
-Building the spine: one real payment end to end on the Nile testnet.
+The spine is closed: request → address → chain → settlement → merchant notified.
+A payment created through the API is settled by the indexer against the real
+Nile head and delivered to the merchant with a verifiable signature.
 
 | Piece | State |
 |---|---|
@@ -19,8 +21,8 @@ Building the spine: one real payment end to end on the Nile testnet.
 | TRON block indexer (`@relay/indexer`) | done, 15 decoder tests |
 | Merchant API (`@relay/api`) | payments done, 13 tests |
 | Settlement into the ledger | done, 10 integration tests |
-| Webhook delivery worker | next |
-| Sweeping & energy management | later |
+| Webhook delivery worker (`@relay/webhooks`) | done, 17 tests |
+| Sweeping & energy management | next |
 | Console + merchant dashboard | later |
 
 ## Getting started
@@ -34,6 +36,7 @@ npm run db:migrate            # apply the schema
 npm run db:seed               # create a merchant, project and API key
 npm run api:dev               # build and start the API on :3000
 npm run indexer:dev           # build and start the TRON indexer
+npm run webhooks:dev          # build and start the delivery worker
 npm run db:reset              # drop and rebuild the schema (development only)
 
 npm test                      # unit tests, no dependencies
@@ -123,6 +126,29 @@ that is the indexer returning from an outage to find a transfer already twenty
 blocks deep, not a skipped confirmation. Depth is checked against the chain
 before any transition is proposed.
 
+**Webhook endpoints are treated as hostile.** The URL is supplied by the
+merchant and the worker runs inside our network, so a naive implementation is
+a way to make our own infrastructure issue requests on a stranger's behalf.
+Private ranges, the cloud metadata address and non-http schemes are refused,
+and redirects are not followed. This is a mitigation, not a cure: a hostname
+that resolves to a private address at connect time still gets through, and
+closing that needs an egress proxy or socket-level pinning. The code says so
+rather than implying the hole is shut.
+
+**A queued webhook carries a snapshot, not a reference.** The payload is built
+when the event happens. A retry six hours later sends what was true then —
+rebuilding it from the current row would show merchants a history that never
+occurred.
+
+**Deliveries are claimed with a lease, not a flag.** `FOR UPDATE SKIP LOCKED`
+lets several workers run without sending anything twice, and a worker that
+dies mid-send releases its rows when the lease expires instead of stranding
+them.
+
+**The signature covers the exact bytes sent.** The body is serialised once and
+both signed and transmitted from that string. Signing a re-serialisation would
+produce failures no merchant could reproduce.
+
 **Payment state and webhook state are separate machines.** A payment whose
 funds are confirmed on-chain is settled, permanently, whatever the merchant's
 HTTP endpoint does afterwards. Collapsing the two — as the design mockups do
@@ -162,7 +188,7 @@ test/              integration tests against a live database
 packages/db        repositories, transactions, bigint conversion at the edge
 services/api       merchant-facing HTTP API
 services/indexer   TRON block watcher
-services/webhooks  delivery worker with retries        (empty)
+services/webhooks  delivery worker with retries
 ```
 
 ## Design reference
@@ -170,3 +196,40 @@ services/webhooks  delivery worker with retries        (empty)
 Visual language and screen designs live in
 `Desktop/TRON платежная инфраструктура/design_handoff_relay/` — prototypes, not
 production code.
+
+## Trying it end to end
+
+Four processes: the API, the indexer, the delivery worker, and a stand-in for
+a merchant's server.
+
+```bash
+npm run db:seed                      # prints an API key and a project id
+node scripts/demo-merchant.mjs       # a merchant's endpoint on :4001
+npm run api:dev
+npm run indexer:dev
+npm run webhooks:dev
+```
+
+Create a payment, then stand in for the customer:
+
+```bash
+node scripts/demo-receive.mjs <paymentId> <depositAddress> 480000000
+```
+
+`demo-receive.mjs` writes a transfer at a block the network has already
+buried, so the indexer computes its depth from the real Nile head. Only the
+transfer is fabricated; everything after it is the real pipeline. Roughly ten
+seconds later:
+
+```
+[indexer]  payment advanced payment=PAY_BR4JA3WRTTEBS1F2 from=waiting to=completed confirmations=26
+[webhooks] delivered payment=PAY_BR4JA3WRTTEBS1F2 event=payment.completed attempt=1/5 http=200 ms=20
+[merchant] signature VALID  payment.completed  completed  net=475.200000 fee=4.800000
+```
+
+`scripts/demo-merchant.mjs` doubles as the reference implementation to hand
+merchants: it verifies the signature and answers 2xx immediately, doing real
+work afterwards rather than holding the request open.
+
+Real testnet USDT would replace `demo-receive.mjs` entirely — the rest of the
+flow is unchanged.

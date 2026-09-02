@@ -22,7 +22,8 @@
     "db:seed": "node scripts/seed.mjs",
     "api:dev": "npm run build && node --env-file-if-exists=.env services/api/dist/index.js",
     "db:reset": "node scripts/reset-db.mjs && npm run db:migrate",
-    "indexer:dev": "npm run build && node --env-file-if-exists=.env services/indexer/dist/index.js"
+    "indexer:dev": "npm run build && node --env-file-if-exists=.env services/indexer/dist/index.js",
+    "webhooks:dev": "npm run build && node --env-file-if-exists=.env services/webhooks/dist/index.js"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

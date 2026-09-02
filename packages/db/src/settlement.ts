@@ -21,6 +21,8 @@ import {
 
 import { inTransaction, toBigInt } from './pool.ts';
 import { ACCOUNT_CODES, postLedgerTransaction } from './ledger.ts';
+import { PAYMENT_COLUMNS, mapPayment, type PaymentRecord } from './payments.ts';
+import { serializePayment } from './serialize.ts';
 
 export interface SettlementOutcome {
   readonly paymentId: string;
@@ -108,10 +110,17 @@ function nextState(
   return totals.confirmations > 0 ? 'confirming' : 'detected';
 }
 
+/**
+ * Queue one notification.
+ *
+ * The payload is a snapshot taken now, not a reference resolved at delivery
+ * time. A webhook describes what happened when it happened: if a retry six
+ * hours later rebuilt the body from the current row, a merchant replaying
+ * their queue would see a history that never occurred.
+ */
 async function enqueueWebhook(
   client: PoolClient,
-  paymentId: string,
-  projectId: string,
+  payment: PaymentRecord,
   state: PaymentState,
 ): Promise<void> {
   const event = EVENT_FOR_STATE[state];
@@ -119,7 +128,7 @@ async function enqueueWebhook(
 
   const { rows } = await client.query<{ webhook_url: string | null }>(
     'SELECT webhook_url FROM projects WHERE id = $1',
-    [projectId],
+    [payment.projectId],
   );
   const endpoint = rows[0]?.webhook_url;
   // No endpoint configured is not an error: plenty of merchants poll instead.
@@ -130,10 +139,14 @@ async function enqueueWebhook(
      VALUES ($1, $2, $3, $4, $5::jsonb, $6)`,
     [
       newId('webhookDelivery'),
-      paymentId,
-      projectId,
+      payment.id,
+      payment.projectId,
       event,
-      JSON.stringify({ event, payment_id: paymentId }),
+      JSON.stringify({
+        event,
+        created_at: new Date().toISOString(),
+        data: serializePayment(payment),
+      }),
       endpoint,
     ],
   );
@@ -240,13 +253,14 @@ export async function settlePayment(paymentId: string): Promise<SettlementOutcom
       });
     }
 
-    await client.query(
+    const { rows: updated } = await client.query(
       `UPDATE payments
           SET state = $2, received_units = $3, confirmations = $4,
               fee_units = $5, net_units = $6,
               first_detected_at = COALESCE(first_detected_at, now()),
               settled_at = CASE WHEN $7 THEN now() ELSE settled_at END
-        WHERE id = $1`,
+        WHERE id = $1
+      RETURNING ${PAYMENT_COLUMNS}`,
       [
         paymentId,
         target,
@@ -258,7 +272,7 @@ export async function settlePayment(paymentId: string): Promise<SettlementOutcom
       ],
     );
 
-    await enqueueWebhook(client, paymentId, payment['project_id'] as string, target);
+    await enqueueWebhook(client, mapPayment(updated[0]!), target);
 
     return {
       paymentId,

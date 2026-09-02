@@ -1,22 +1,25 @@
 /**
- * Turning internal records into JSON a merchant reads.
+ * The public shape of a payment.
  *
- * Two rules the rest of the service depends on.
+ * Lives here, next to the record it is built from, because two places need it
+ * and they must not drift: the API returns it, and a webhook carries it as a
+ * snapshot of the moment the event happened. A merchant comparing the two
+ * should see the same fields with the same names.
  *
- * Amounts leave as decimal STRINGS, never JSON numbers. `15000.50` survives a
- * round trip through a JSON number, but `90071992547409.91` does not — and the
- * merchant's language may parse it into a float without asking. A string is
- * the only representation every client reads back exactly as we sent it.
+ * Amounts are decimal STRINGS, never JSON numbers. `15000.50` survives a round
+ * trip through a JSON number, but `90071992547409.91` does not, and the
+ * receiving language may parse one into a float without being asked.
  *
- * The response shape is written out field by field rather than spreading the
- * database record. A column added to a table must never appear in a public API
- * response by accident.
+ * Fields are written out one by one rather than spread from the record, so a
+ * column added to the payments table cannot appear in a public payload by
+ * accident.
  */
 
 import { formatAmount, type Asset } from '@relay/core';
-import type { PaymentRecord } from '@relay/db';
 
-export interface PaymentResponse {
+import type { PaymentRecord } from './payments.ts';
+
+export interface PaymentView {
   id: string;
   object: 'payment';
   state: string;
@@ -34,7 +37,7 @@ export interface PaymentResponse {
   settled_at: string | null;
 }
 
-export function serializePayment(payment: PaymentRecord): PaymentResponse {
+export function serializePayment(payment: PaymentRecord): PaymentView {
   const amount = (units: bigint): string => formatAmount(units, payment.asset);
 
   return {
