@@ -16,8 +16,9 @@ Building the spine: one real payment end to end on the Nile testnet.
 | Settlement & fee split (`@relay/core`) | done, 12 tests |
 | Deposit address derivation (`@relay/wallet`) | done, 13 tests |
 | Database schema + double-entry ledger | done, 17 integration tests |
-| TRON block indexer | next |
+| TRON block indexer (`@relay/indexer`) | done, 15 decoder tests |
 | Merchant API (`@relay/api`) | payments done, 13 tests |
+| Settlement into the ledger | done, 10 integration tests |
 | Webhook delivery worker | next |
 | Sweeping & energy management | later |
 | Console + merchant dashboard | later |
@@ -32,6 +33,8 @@ npm run wallet:new-mnemonic   # generate a master seed, put it in .env
 npm run db:migrate            # apply the schema
 npm run db:seed               # create a merchant, project and API key
 npm run api:dev               # build and start the API on :3000
+npm run indexer:dev           # build and start the TRON indexer
+npm run db:reset              # drop and rebuild the schema (development only)
 
 npm test                      # unit tests, no dependencies
 npm run test:db               # integration tests, needs the containers
@@ -94,6 +97,32 @@ impossible to tell apart, and derivation costs nothing.
 **Pricing is frozen onto each payment at creation.** Changing a project's fee
 must not rewrite what an in-flight payment already agreed to.
 
+**The indexer reads blocks, not addresses.** Two calls per block: the block
+body carries native TRX transfers, and the transaction-info response carries
+TRC20 event logs. Polling each open deposit address instead would be one
+request per address per cycle, which stops scaling at a few hundred payments.
+
+**A TRON address is 21 bytes in a transaction and 20 in an event log.** The log
+format is inherited from Ethereum and omits the 0x41 prefix. Confusing the two
+produces a valid-looking address belonging to nobody, so the two decoders
+reject each other's input rather than guessing. The decoder tests run against
+blocks captured verbatim from Nile.
+
+**Confirmations are recomputed from the chain head every pass**, not
+incremented. A restart, a missed cycle or a reorg cannot leave a payment stuck
+one confirmation short of settling.
+
+**Blocks are recorded before the indexer's position advances.** A crash between
+the two re-reads the block instead of skipping it; inserts are keyed on
+(tx_hash, log_index) so re-reading costs nothing, while skipping would lose a
+payment in silence.
+
+**The transition table stops payments moving backwards — it does not enforce
+confirmation depth.** A payment may go straight from `waiting` to `completed`:
+that is the indexer returning from an outage to find a transfer already twenty
+blocks deep, not a skipped confirmation. Depth is checked against the chain
+before any transition is proposed.
+
 **Payment state and webhook state are separate machines.** A payment whose
 funds are confirmed on-chain is settled, permanently, whatever the merchant's
 HTTP endpoint does afterwards. Collapsing the two — as the design mockups do
@@ -132,7 +161,7 @@ db/migrations      schema, applied by scripts/migrate.mjs
 test/              integration tests against a live database
 packages/db        repositories, transactions, bigint conversion at the edge
 services/api       merchant-facing HTTP API
-services/indexer   TRON block watcher                  (empty)
+services/indexer   TRON block watcher
 services/webhooks  delivery worker with retries        (empty)
 ```
 

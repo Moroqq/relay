@@ -43,12 +43,17 @@ async function seed() {
     `INSERT INTO projects (id, merchant_id, name, payout_address)
      VALUES ('PRJ_TEST', 'MER_TEST', 'Test Project', 'TGW8B1V74D4MXApryznqjDSbs7PqvRtLtj')`,
   );
+  // Scoped to this fixture's project rather than left platform-wide. The
+  // real platform accounts are unique on (code, asset, NULL project), so a
+  // fixture using NULL would collide with live data the moment anything has
+  // actually settled. What is under test here is the balancing rule, which
+  // does not care which project an account belongs to.
   await client.query(`
     INSERT INTO ledger_accounts (id, code, kind, asset, project_id) VALUES
-      ('ACC_DEP_USDT', 'chain.deposits',       'asset',     'USDT', NULL),
+      ('ACC_DEP_USDT', 'chain.deposits',       'asset',     'USDT', 'PRJ_TEST'),
       ('ACC_PAY_USDT', 'merchant.payable',     'liability', 'USDT', 'PRJ_TEST'),
-      ('ACC_FEE_USDT', 'platform.fee_revenue', 'revenue',   'USDT', NULL),
-      ('ACC_DEP_TRX',  'chain.deposits',       'asset',     'TRX',  NULL)
+      ('ACC_FEE_USDT', 'platform.fee_revenue', 'revenue',   'USDT', 'PRJ_TEST'),
+      ('ACC_DEP_TRX',  'chain.deposits',       'asset',     'TRX',  'PRJ_TEST')
   `);
   await client.query(
     `INSERT INTO ledger_transactions (id, kind, memo) VALUES ('LTX_TEST', 'payment.settled', 'test')`,
@@ -164,7 +169,8 @@ test('balances are derived from the entries, and always add to zero', async () =
 
     const { rows } = await client.query(
       `SELECT code, balance_units FROM ledger_balances
-        WHERE asset = 'USDT' AND entry_count > 0 ORDER BY code`,
+        WHERE asset = 'USDT' AND entry_count > 0 AND project_id = 'PRJ_TEST'
+        ORDER BY code`,
     );
     assert.deepEqual(rows, [
       { code: 'chain.deposits', balance_units: '480000000' },
@@ -174,7 +180,8 @@ test('balances are derived from the entries, and always add to zero', async () =
 
     // The books balance overall, not just per transaction.
     const { rows: [total] } = await client.query(
-      `SELECT SUM(balance_units)::TEXT AS total FROM ledger_balances WHERE asset = 'USDT'`,
+      `SELECT SUM(balance_units)::TEXT AS total FROM ledger_balances
+         WHERE asset = 'USDT' AND project_id = 'PRJ_TEST'`,
     );
     assert.equal(total.total, '0');
   });

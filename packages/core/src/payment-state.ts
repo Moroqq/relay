@@ -40,23 +40,39 @@ export type PaymentState = (typeof PAYMENT_STATES)[number];
 /**
  * Allowed transitions. Anything not listed here is a bug, and the code that
  * applies transitions must reject it loudly rather than coerce it.
+ *
+ * The table's job is to stop a payment moving BACKWARDS — settled money must
+ * never become unsettled, and a terminal state must stay terminal. It is not
+ * where "do not settle unconfirmed funds" is enforced; that rule belongs to
+ * whoever compares confirmations against the required depth, because it is a
+ * fact about the chain rather than about the shape of the graph.
+ *
+ * So a payment may jump straight from `waiting` to `completed`. That is not a
+ * skipped confirmation: it is the indexer coming back after an outage and
+ * seeing a transfer that is already twenty blocks deep. Forcing it through the
+ * intermediate states would mean either delaying settlement by two more passes
+ * or sending the merchant `detected` and `confirming` webhooks for moments
+ * that have long since passed.
  */
 const PAYMENT_TRANSITIONS: Readonly<Record<PaymentState, readonly PaymentState[]>> =
   Object.freeze({
-    waiting: ['detected', 'expired', 'failed'],
-    detected: ['confirming', 'failed'],
+    waiting: ['detected', 'confirming', 'completed', 'underpaid', 'overpaid', 'expired', 'failed'],
+    detected: ['confirming', 'completed', 'underpaid', 'overpaid', 'failed'],
     confirming: ['completed', 'underpaid', 'overpaid', 'failed'],
 
-    // An underpaid payment can be topped up by a second transfer.
-    underpaid: ['confirming', 'completed', 'failed'],
+    // An underpaid payment can be topped up by a later transfer, and the
+    // top-up can overshoot.
+    underpaid: ['confirming', 'completed', 'overpaid', 'failed'],
 
     // An overpaid payment stays overpaid until a human resolves the excess;
     // resolution is recorded as a refund, not as a state change.
     overpaid: [],
 
-    // Money arriving after the window closed is common enough that it must be
-    // a first-class path, not an incident. Merchants care about this one.
-    expired: ['detected'],
+    // Money arriving after the window closed is routine, not an incident. If
+    // it is confirmed and covers the invoice, the payment settles: leaving a
+    // customer's funds in limbo because a timer elapsed is the worse outcome,
+    // and the merchant is notified either way.
+    expired: ['detected', 'confirming', 'completed', 'underpaid', 'overpaid'],
 
     completed: [],
     failed: [],

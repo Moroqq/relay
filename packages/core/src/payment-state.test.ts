@@ -16,11 +16,37 @@ test('the happy path walks all the way to completed', () => {
   assert.ok(canTransition('confirming', 'completed'));
 });
 
-test('a payment can never skip confirmations', () => {
-  // Straight from "we saw something" to "it is settled" would mean paying out
-  // on a transfer that can still be orphaned.
-  assert.equal(canTransition('detected', 'completed'), false);
-  assert.equal(canTransition('waiting', 'completed'), false);
+test('a payment may settle in one step when we were not watching', () => {
+  // The indexer comes back after an outage and finds a transfer already
+  // twenty blocks deep. Forcing this through the intermediate states would
+  // delay settlement and emit webhooks for moments that have passed.
+  //
+  // This is not a skipped confirmation. Confirmation depth is checked against
+  // the chain before any of these transitions is proposed; the table only
+  // stops a payment moving backwards.
+  assert.ok(canTransition('waiting', 'completed'));
+  assert.ok(canTransition('detected', 'completed'));
+});
+
+test('a payment can never move backwards', () => {
+  for (const state of ['waiting', 'detected', 'confirming', 'underpaid'] as const) {
+    assert.equal(canTransition('completed', state), false, `completed -> ${state}`);
+    assert.equal(canTransition('failed', state), false, `failed -> ${state}`);
+    assert.equal(canTransition('overpaid', state), false, `overpaid -> ${state}`);
+  }
+  assert.equal(canTransition('confirming', 'waiting'), false);
+  assert.equal(canTransition('confirming', 'detected'), false);
+});
+
+test('late money on an expired payment can still settle it', () => {
+  // Leaving a customer's confirmed funds in limbo because a timer elapsed is
+  // worse than settling late. The merchant is notified either way.
+  assert.ok(canTransition('expired', 'completed'));
+  assert.ok(canTransition('expired', 'underpaid'));
+});
+
+test('a top-up that overshoots is allowed', () => {
+  assert.ok(canTransition('underpaid', 'overpaid'));
 });
 
 test('settled money cannot be walked back', () => {

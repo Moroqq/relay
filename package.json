@@ -13,14 +13,16 @@
   "scripts": {
     "build": "tsc --build",
     "clean": "tsc --build --clean",
-    "test": "node --test",
+    "test": "node --test \"packages/*/src/**/*.test.ts\" \"services/*/src/**/*.test.ts\"",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down",
     "wallet:new-mnemonic": "node scripts/new-mnemonic.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "test:db": "node --test \"test/*.test.mjs\"",
     "db:seed": "node scripts/seed.mjs",
-    "api:dev": "npm run build && node --env-file-if-exists=.env services/api/dist/index.js"
+    "api:dev": "npm run build && node --env-file-if-exists=.env services/api/dist/index.js",
+    "db:reset": "node scripts/reset-db.mjs && npm run db:migrate",
+    "indexer:dev": "npm run build && node --env-file-if-exists=.env services/indexer/dist/index.js"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
