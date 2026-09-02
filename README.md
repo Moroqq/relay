@@ -11,12 +11,13 @@ Building the spine: one real payment end to end on the Nile testnet.
 | Piece | State |
 |---|---|
 | Money arithmetic (`@relay/core`) | done, 8 tests |
+| Ids, API keys, webhook signing (`@relay/core`) | done, 22 tests |
 | Payment + webhook state machines (`@relay/core`) | done, 9 tests |
 | Settlement & fee split (`@relay/core`) | done, 12 tests |
 | Deposit address derivation (`@relay/wallet`) | done, 13 tests |
 | Database schema + double-entry ledger | done, 17 integration tests |
 | TRON block indexer | next |
-| Merchant API | next |
+| Merchant API (`@relay/api`) | payments done, 13 tests |
 | Webhook delivery worker | next |
 | Sweeping & energy management | later |
 | Console + merchant dashboard | later |
@@ -29,11 +30,43 @@ docker compose up -d          # postgres on :5433, redis on :6380
 cp .env.example .env
 npm run wallet:new-mnemonic   # generate a master seed, put it in .env
 npm run db:migrate            # apply the schema
+npm run db:seed               # create a merchant, project and API key
+npm run api:dev               # build and start the API on :3000
 
 npm test                      # unit tests, no dependencies
 npm run test:db               # integration tests, needs the containers
 npm run build
 ```
+
+
+## API
+
+```bash
+curl -X POST http://127.0.0.1:3000/v1/payments   -H "Authorization: Bearer ak_test_..."   -H "Content-Type: application/json"   -d '{"amount":"480.00","asset":"USDT","external_ref":"ORD-11902"}'
+```
+
+```json
+{
+  "id": "PAY_VWWRZBHZ7NZ2236S",
+  "state": "waiting",
+  "expected_amount": "480.000000",
+  "deposit_address": "TVHPXSQCP9DFqLAYJP8TWu1XMnB6bJ64tH",
+  "required_confirmations": 20,
+  "expires_at": "2026-09-02T13:30:23.984Z"
+}
+```
+
+`GET /v1/payments/:id` and `GET /v1/payments` read them back. Amounts are
+always decimal strings: a JSON number cannot carry `90071992.547409` intact,
+and some clients will parse one into a float without being asked.
+
+`external_ref` is the merchant's own order id and doubles as the idempotency
+key. A repeated create returns the original payment with 200 instead of 201 —
+including when several retries arrive at the same instant, which is settled by
+a unique index rather than by a read-then-insert check that any race defeats.
+
+A payment id belonging to another merchant returns 404, not 403. Otherwise the
+API would confirm which ids exist.
 
 ## Decisions worth knowing
 
@@ -97,7 +130,8 @@ packages/core      money, state machines, settlement rules
 packages/wallet    BIP44 deposit address derivation
 db/migrations      schema, applied by scripts/migrate.mjs
 test/              integration tests against a live database
-services/api       merchant-facing HTTP API            (empty)
+packages/db        repositories, transactions, bigint conversion at the edge
+services/api       merchant-facing HTTP API
 services/indexer   TRON block watcher                  (empty)
 services/webhooks  delivery worker with retries        (empty)
 ```

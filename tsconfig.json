@@ -1,7 +1,17 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/core" },
-    { "path": "./packages/wallet" }
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./packages/wallet"
+    },
+    {
+      "path": "./packages/db"
+    },
+    {
+      "path": "./services/api"
+    }
   ]
 }

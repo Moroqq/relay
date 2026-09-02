@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { DepositWallet } from '@relay/wallet';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 try { process.loadEnvFile(path.join(root, '.env')); } catch {}
@@ -23,14 +24,30 @@ async function inRollback(body) {
   try { await body(); } finally { await client.query('ROLLBACK'); }
 }
 
+// Fixture addresses are derived high up the BIP44 path, far above anything
+// the sequence will hand out, so these tests never collide with addresses
+// issued by a running API against the same development database.
+const wallet = DepositWallet.fromMnemonic(
+  'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+);
+let fixtureBase = 1_000_000 + Math.floor(Math.random() * 100_000_000);
+let A0;
+let A1;
+
 async function seed() {
+  const first = wallet.deriveAddress(fixtureBase);
+  const second = wallet.deriveAddress(fixtureBase + 1);
+  A0 = first.address;
+  A1 = second.address;
+
   await client.query(`INSERT INTO merchants (id, name) VALUES ('MER_T', 'T')`);
   await client.query(`INSERT INTO projects (id, merchant_id, name) VALUES ('PRJ_T', 'MER_T', 'T')`);
-  await client.query(`
-    INSERT INTO deposit_addresses (address, derivation_index, derivation_path) VALUES
-      ('TGW8B1V74D4MXApryznqjDSbs7PqvRtLtj', 0, 'm/44''/195''/0''/0/0'),
-      ('TGvPpdz2mipjvsVuyZqMFJ62VCeS9LGVLK', 1, 'm/44''/195''/0''/0/1')
-  `);
+  await client.query(
+    `INSERT INTO deposit_addresses (address, derivation_index, derivation_path) VALUES
+       ($1, $2, $3), ($4, $5, $6)`,
+    [first.address, fixtureBase, first.path, second.address, fixtureBase + 1, second.path],
+  );
+  fixtureBase += 2;
 }
 
 const insertPayment = (id, address, extras = {}) => {
@@ -46,9 +63,6 @@ const insertPayment = (id, address, extras = {}) => {
     [id, externalRef, state, address, fee, net],
   );
 };
-
-const A0 = 'TGW8B1V74D4MXApryznqjDSbs7PqvRtLtj';
-const A1 = 'TGvPpdz2mipjvsVuyZqMFJ62VCeS9LGVLK';
 
 test('a retried create cannot produce a second payment for the same order', async () => {
   await inRollback(async () => {
