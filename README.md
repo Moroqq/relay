@@ -22,7 +22,9 @@ Nile head and delivered to the merchant with a verifiable signature.
 | Merchant API (`@relay/api`) | payments done, 13 tests |
 | Settlement into the ledger | done, 10 integration tests |
 | Webhook delivery worker (`@relay/webhooks`) | done, 17 tests |
-| Sweeping & energy management | next |
+| Sweeping to the merchant (`@relay/sweeper`) | done, 26 tests; broadcast off by default |
+| Energy delegation (stake instead of burn) | next |
+| Price feed for the sweep decision | next |
 | Console + merchant dashboard | later |
 
 ## Getting started
@@ -37,6 +39,7 @@ npm run db:seed               # create a merchant, project and API key
 npm run api:dev               # build and start the API on :3000
 npm run indexer:dev           # build and start the TRON indexer
 npm run webhooks:dev          # build and start the delivery worker
+npm run sweeper:dev           # build and start the sweeper (dry run by default)
 npm run db:reset              # drop and rebuild the schema (development only)
 
 npm test                      # unit tests, no dependencies
@@ -149,6 +152,38 @@ them.
 both signed and transmitted from that string. Signing a re-serialisation would
 produce failures no merchant could reproduce.
 
+**The sweeper does not broadcast unless told to.** `SWEEP_BROADCAST=true` is
+required; anything else builds and signs but stops there. A misconfigured
+sweeper that only signs costs nothing, and one that broadcasts by default can
+empty every deposit address before a log line is read.
+
+**The signed transaction is persisted before it is broadcast.** TRON's
+transaction id is the hash of its body, so it is fixed at signing time. A retry
+re-sends the same bytes and the network accepts them once; rebuilding a fresh
+transaction on retry would send the money twice. The schema refuses a sweep
+marked signed that has no transaction to prove it.
+
+**Nothing is signed without being re-read first.** The node builds the
+transaction — we do not reimplement protobuf — but a node is a remote service
+and a signature is irrevocable. Before signing, the returned transaction's
+owner, contract and call data are checked against what was requested, and the
+transaction id is recomputed from the bytes rather than taken on trust.
+
+**The signature header is the recovery id plus 27.** TRON inherited the offset
+from Ethereum. A bare recovery id produces a signature correct in all 64 other
+bytes that fails with "signature validate failed". Settled by comparing against
+TronWeb on a real transaction, and there is a test for that single byte.
+
+**Dust is left where it is.** A 0.05 USDT balance on an address that costs
+0.16 USDT to empty is not swept. The decision is re-made every pass against
+live network prices, so an address not worth emptying today is emptied when
+either the balance grows or energy gets cheaper.
+
+**Resource prices are read from the chain, never hardcoded.** Energy and
+bandwidth pricing are governance parameters: they differ between mainnet and
+testnet and change by vote. A constant would be wrong on one network today and
+on both after the next vote.
+
 **Payment state and webhook state are separate machines.** A payment whose
 funds are confirmed on-chain is settled, permanently, whatever the merchant's
 HTTP endpoint does afterwards. Collapsing the two — as the design mockups do
@@ -185,10 +220,12 @@ packages/core      money, state machines, settlement rules
 packages/wallet    BIP44 deposit address derivation
 db/migrations      schema, applied by scripts/migrate.mjs
 test/              integration tests against a live database
+packages/tron      shared HTTP client for a TRON full node
 packages/db        repositories, transactions, bigint conversion at the edge
 services/api       merchant-facing HTTP API
 services/indexer   TRON block watcher
 services/webhooks  delivery worker with retries
+services/sweeper   moves settled funds to the merchant
 ```
 
 ## Design reference
@@ -233,3 +270,25 @@ work afterwards rather than holding the request open.
 
 Real testnet USDT would replace `demo-receive.mjs` entirely — the rest of the
 flow is unchanged.
+
+## What sweeping costs
+
+The largest running cost of a TRON payment operator, and the reason the
+economics live in code rather than in a spreadsheet.
+
+A USDT transfer needs roughly 65,000 energy. An account with none staked burns
+TRX for it at the network's energy price:
+
+```
+mainnet, nothing staked   13.65 TRX + 0.345 TRX bandwidth  ~= $4.20 per sweep
+with energy delegated      0.345 TRX bandwidth only        ~= $0.10 per sweep
+```
+
+At a thousand sweeps a day that is about five million TRX a year burned, or
+nothing at all — staked TRX is returned when unstaked, so energy obtained by
+staking has no running cost, only tied-up capital. `compareEnergyStrategies`
+in `@relay/core` computes the difference, and there is a test asserting it.
+
+Delegation itself is not built yet, which is the next piece of work. Until it
+is, the sweeper pays the burn price and refuses any sweep where that price
+takes more than 5% of the amount.

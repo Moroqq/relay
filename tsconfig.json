@@ -8,6 +8,9 @@
       "path": "./packages/wallet"
     },
     {
+      "path": "./packages/tron"
+    },
+    {
       "path": "./packages/db"
     },
     {
@@ -18,6 +21,9 @@
     },
     {
       "path": "./services/webhooks"
+    },
+    {
+      "path": "./services/sweeper"
     }
   ]
 }

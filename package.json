@@ -18,12 +18,13 @@
     "infra:down": "docker compose down",
     "wallet:new-mnemonic": "node scripts/new-mnemonic.mjs",
     "db:migrate": "node scripts/migrate.mjs",
-    "test:db": "node --test \"test/*.test.mjs\"",
+    "test:db": "node --test --test-concurrency=1 \"test/*.test.mjs\"",
     "db:seed": "node scripts/seed.mjs",
     "api:dev": "npm run build && node --env-file-if-exists=.env services/api/dist/index.js",
     "db:reset": "node scripts/reset-db.mjs && npm run db:migrate",
     "indexer:dev": "npm run build && node --env-file-if-exists=.env services/indexer/dist/index.js",
-    "webhooks:dev": "npm run build && node --env-file-if-exists=.env services/webhooks/dist/index.js"
+    "webhooks:dev": "npm run build && node --env-file-if-exists=.env services/webhooks/dist/index.js",
+    "sweeper:dev": "npm run build && node --env-file-if-exists=.env services/sweeper/dist/index.js"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

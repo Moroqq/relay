@@ -17,7 +17,7 @@ import {
 
 import { loadIndexerConfig } from './config.ts';
 import { scanBlock } from './scan.ts';
-import { TronClient } from './tron.ts';
+import { TronClient } from '@relay/tron';
 
 const config = loadIndexerConfig();
 const tron = new TronClient({ baseUrl: config.fullNode, apiKey: config.apiKey });

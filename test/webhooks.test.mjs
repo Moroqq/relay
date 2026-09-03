@@ -107,14 +107,30 @@ async function settledPayment(amount = '480.00') {
   return payment;
 }
 
-/** One turn of the worker loop, scoped to this project's deliveries. */
+/**
+ * One turn of the worker loop, scoped to this project's deliveries.
+ *
+ * The real queue is global — a worker takes whatever is due, from any project.
+ * Other test files leave their own deliveries in the same database, so this
+ * drains batches until it reaches ours instead of assuming the first fifty
+ * rows belong to us. Rows claimed on the way through are simply leased and
+ * become due again shortly, which is exactly what a second worker would see.
+ */
 async function runWorker() {
-  const due = (await claimDueDeliveries(50)).filter((d) => d.projectId === projectId);
   const results = [];
-  for (const delivery of due) {
-    const result = await deliver(delivery, OPTIONS);
-    results.push({ delivery, result, recorded: await recordDeliveryResult(delivery, result) });
+
+  for (let round = 0; round < 25; round++) {
+    const batch = await claimDueDeliveries(200);
+    if (batch.length === 0) break;
+
+    const mine = batch.filter((d) => d.projectId === projectId);
+    for (const delivery of mine) {
+      const result = await deliver(delivery, OPTIONS);
+      results.push({ delivery, result, recorded: await recordDeliveryResult(delivery, result) });
+    }
+    if (mine.length > 0) break;
   }
+
   return results;
 }
 

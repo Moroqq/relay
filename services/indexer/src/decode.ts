@@ -14,16 +14,11 @@
 
 import { encodeAddress } from '@relay/wallet';
 import type { Asset } from '@relay/core';
+import type { RawLog, RawTransaction, RawTransactionInfo } from '@relay/tron';
 
 /** keccak256("Transfer(address,address,uint256)") */
 export const TRANSFER_TOPIC =
   'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
-
-export interface RawLog {
-  readonly address?: string;
-  readonly topics?: readonly string[];
-  readonly data?: string;
-}
 
 export interface DecodedTransfer {
   readonly asset: Asset;
@@ -143,21 +138,6 @@ export function decodeTransferLog(
 // Native TRX
 // ---------------------------------------------------------------------------
 
-/**
- * TRX itself is not a contract, so a plain TRX payment produces no event log.
- * It appears in the block body as a TransferContract, with 21-byte addresses
- * carrying the 0x41 prefix that the log format omits.
- */
-export interface RawTransaction {
-  readonly txID?: string;
-  readonly ret?: readonly { contractRet?: string }[];
-  readonly raw_data?: {
-    readonly contract?: readonly {
-      readonly type?: string;
-      readonly parameter?: { readonly value?: Record<string, unknown> };
-    }[];
-  };
-}
 
 /**
  * Whether a transaction actually succeeded.
@@ -197,12 +177,6 @@ export function decodeNativeTransfer(tx: RawTransaction): DecodedTransfer | null
 // ---------------------------------------------------------------------------
 // Whole blocks
 // ---------------------------------------------------------------------------
-
-export interface RawTransactionInfo {
-  readonly id?: string;
-  readonly receipt?: { readonly result?: string };
-  readonly log?: readonly RawLog[];
-}
 
 export interface ObservedTransfer extends DecodedTransfer {
   readonly txHash: string;
@@ -257,3 +231,5 @@ export function extractNativeTransfers(
 
   return found;
 }
+
+export type { RawLog, RawTransaction, RawTransactionInfo };

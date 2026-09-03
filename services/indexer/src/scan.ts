@@ -11,7 +11,7 @@ import {
 
 import { extractNativeTransfers, extractTrc20Transfers } from './decode.ts';
 import type { IndexerConfig } from './config.ts';
-import type { TronClient } from './tron.ts';
+import type { TronClient } from '@relay/tron';
 
 export interface ScanResult {
   readonly blockNumber: number;

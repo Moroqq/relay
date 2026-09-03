@@ -6,3 +6,4 @@ export * from './chain.ts';
 export * from './ledger.ts';
 export * from './settlement.ts';
 export * from './webhooks.ts';
+export * from './sweeps.ts';
