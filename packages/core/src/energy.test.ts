@@ -22,8 +22,16 @@ const NILE: ResourcePrices = {
   newAccountFeeSun: 1_000_000n,
 };
 
-/** Mainnet has voted energy considerably more expensive than the testnet. */
-const MAINNET: ResourcePrices = {
+/**
+ * A higher energy price than either network currently charges.
+ *
+ * Mainnet voted 210 sun in 2024 and 100 sun as of this writing; Nile is also
+ * at 100. The figure is kept here as a deliberately expensive case rather than
+ * a claim about today's mainnet — the point of these tests is that the code
+ * reads the price from the chain, so any constant in a test is an example and
+ * never a source of truth.
+ */
+const EXPENSIVE: ResourcePrices = {
   energyFeeSun: 210n,
   bandwidthFeeSun: 1_000n,
   newAccountFeeSun: 1_000_000n,
@@ -38,7 +46,7 @@ const COLD_TRANSFER = { energyUnits: 65_000n, bandwidthBytes: 345n, activatesAcc
 const TRX_AT_30_CENTS = usdt('0.30');
 
 test('an account with nothing staked pays for everything it uses', () => {
-  const cost = estimateCost(COLD_TRANSFER, MAINNET, NO_HOLDINGS);
+  const cost = estimateCost(COLD_TRANSFER, EXPENSIVE, NO_HOLDINGS);
 
   assert.equal(cost.energyShortfall, 65_000n);
   assert.equal(cost.energyCostSun, 13_650_000n);        // 13.65 TRX
@@ -51,7 +59,7 @@ test('an account with nothing staked pays for everything it uses', () => {
 
 test('delegated energy removes the largest part of the cost', () => {
   // This is the difference between staking TRX once and burning it forever.
-  const withEnergy = estimateCost(COLD_TRANSFER, MAINNET, {
+  const withEnergy = estimateCost(COLD_TRANSFER, EXPENSIVE, {
     energyUnits: 65_000n,
     bandwidthBytes: 0n,
   });
@@ -63,7 +71,7 @@ test('delegated energy removes the largest part of the cost', () => {
 });
 
 test('partial holdings only pay for the shortfall', () => {
-  const cost = estimateCost(COLD_TRANSFER, MAINNET, {
+  const cost = estimateCost(COLD_TRANSFER, EXPENSIVE, {
     energyUnits: 50_000n,
     bandwidthBytes: 600n,
   });
@@ -75,21 +83,21 @@ test('partial holdings only pay for the shortfall', () => {
 });
 
 test('a first-ever transfer to a fresh address carries an activation fee', () => {
-  const cost = estimateCost({ ...COLD_TRANSFER, activatesAccount: true }, MAINNET);
+  const cost = estimateCost({ ...COLD_TRANSFER, activatesAccount: true }, EXPENSIVE);
   assert.equal(cost.activationCostSun, 1_000_000n); // 1 TRX
   assert.equal(cost.totalSun, 14_995_000n);
 });
 
 test('a warm destination costs less than half a cold one', () => {
-  const warm = estimateCost(WARM_TRANSFER, MAINNET);
-  const cold = estimateCost(COLD_TRANSFER, MAINNET);
+  const warm = estimateCost(WARM_TRANSFER, EXPENSIVE);
+  const cold = estimateCost(COLD_TRANSFER, EXPENSIVE);
   assert.ok(warm.totalSun * 2n < cold.totalSun);
 });
 
-test('the testnet is cheaper than mainnet, which is why costs must be read live', () => {
-  const onNile = estimateCost(COLD_TRANSFER, NILE);
-  const onMainnet = estimateCost(COLD_TRANSFER, MAINNET);
-  assert.ok(onNile.totalSun < onMainnet.totalSun);
+test('the same transfer costs different amounts at different prices', () => {
+  const cheap = estimateCost(COLD_TRANSFER, NILE);
+  const dear = estimateCost(COLD_TRANSFER, EXPENSIVE);
+  assert.ok(cheap.totalSun < dear.totalSun);
   // Hardcoding either figure would be wrong on the other network, and wrong
   // on both after the next governance vote.
 });
@@ -100,7 +108,7 @@ test('sun converts into the asset being swept', () => {
 });
 
 test('a healthy payment is worth sweeping', () => {
-  const cost = estimateCost(COLD_TRANSFER, MAINNET).totalSun;
+  const cost = estimateCost(COLD_TRANSFER, EXPENSIVE).totalSun;
   const decision = decideSweep(usdt('480.00'), cost, TRX_AT_30_CENTS);
 
   assert.equal(decision.verdict, 'sweep');
@@ -112,7 +120,7 @@ test('a healthy payment is worth sweeping', () => {
 test('dust is left where it is rather than swept at a loss', () => {
   // 0.50 USDT on an address that costs $4.20 to empty. Sweeping destroys
   // value; doing it automatically a thousand times a day destroys it at scale.
-  const cost = estimateCost(COLD_TRANSFER, MAINNET).totalSun;
+  const cost = estimateCost(COLD_TRANSFER, EXPENSIVE).totalSun;
   const decision = decideSweep(usdt('0.50'), cost, TRX_AT_30_CENTS);
 
   assert.equal(decision.verdict, 'costs_more_than_value');
@@ -121,7 +129,7 @@ test('dust is left where it is rather than swept at a loss', () => {
 });
 
 test('a payment the fee would eat most of is refused', () => {
-  const cost = estimateCost(COLD_TRANSFER, MAINNET).totalSun;
+  const cost = estimateCost(COLD_TRANSFER, EXPENSIVE).totalSun;
   // $4.20 out of $20 is 21% — above the 5% margin the policy allows.
   const decision = decideSweep(usdt('20.00'), cost, TRX_AT_30_CENTS);
 
@@ -132,8 +140,8 @@ test('a payment the fee would eat most of is refused', () => {
 test('with delegated energy the same small payment becomes worth sweeping', () => {
   // The economics change with the strategy, not with the amount. An address
   // not worth emptying today is worth emptying once energy is staked.
-  const burned = estimateCost(COLD_TRANSFER, MAINNET).totalSun;
-  const delegated = estimateCost(COLD_TRANSFER, MAINNET, {
+  const burned = estimateCost(COLD_TRANSFER, EXPENSIVE).totalSun;
+  const delegated = estimateCost(COLD_TRANSFER, EXPENSIVE, {
     energyUnits: 65_000n,
     bandwidthBytes: 0n,
   }).totalSun;
@@ -150,7 +158,7 @@ test('the minimum balance is respected even when the margin looks fine', () => {
 });
 
 test('a stricter policy refuses more', () => {
-  const cost = estimateCost(WARM_TRANSFER, MAINNET).totalSun;
+  const cost = estimateCost(WARM_TRANSFER, EXPENSIVE).totalSun;
   const relaxed = decideSweep(usdt('50.00'), cost, TRX_AT_30_CENTS, {
     maxFeeBps: 9_900n,
     minValueUnits: 0n,
@@ -165,8 +173,8 @@ test('a stricter policy refuses more', () => {
 });
 
 test('the annual difference between burning and staking is the whole argument', () => {
-  // A thousand sweeps a day at mainnet prices.
-  const { burnedSun, savedSun } = compareEnergyStrategies(1_000n, 65_000n, MAINNET);
+  // A thousand sweeps a day at the expensive price.
+  const { burnedSun, savedSun } = compareEnergyStrategies(1_000n, 65_000n, EXPENSIVE);
   const burnedTrx = burnedSun / SUN_PER_TRX;
 
   assert.equal(burnedTrx, 4_982_250n); // ~5 million TRX a year
