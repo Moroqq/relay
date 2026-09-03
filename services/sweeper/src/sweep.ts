@@ -64,8 +64,22 @@ export async function sweepPayment(
 
   const buildInput = { ownerHex, contractHex, parameterHex, feeLimitSun: config.feeLimitSun };
 
-  // Simulate first. A reverting transfer still burns the fee, and finding out
-  // here costs nothing.
+  // The ledger says these funds exist; the chain is what decides. Reading the
+  // balance first turns "the transfer reverted for some reason" into a
+  // specific, actionable line in the log, and costs one call to find out.
+  const onChain = await client.readTokenBalance(contractHex, ownerHex);
+  if (onChain < candidate.netUnits) {
+    return {
+      kind: 'skipped',
+      reason:
+        `address holds ${formatAmount(onChain, 'USDT', { trimTrailingZeros: true })} USDT, ` +
+        `needs ${formatAmount(candidate.netUnits, 'USDT', { trimTrailingZeros: true })}`,
+    };
+  }
+
+  // Simulate second. A reverting transfer still burns the fee limit, and
+  // finding out here costs nothing — but only if the answer is read properly:
+  // the node reports a revert while still saying the simulation itself ran.
   const estimate = await client.estimateTransfer(buildInput);
   if (!estimate.willSucceed) {
     return { kind: 'failed', reason: `transfer would revert: ${estimate.message ?? 'no reason given'}` };

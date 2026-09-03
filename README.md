@@ -184,6 +184,20 @@ bandwidth pricing are governance parameters: they differ between mainnet and
 testnet and change by vote. A constant would be wrong on one network today and
 on both after the next vote.
 
+**A TRON node says `result: true` for a call that reverted.** It means the
+simulation ran, not that the transfer would succeed: a transfer that reverts
+for insufficient balance comes back with result true, a message of "REVERT
+opcode executed", energy far too low to be real, and an empty return value.
+Success requires all three — the call ran, nothing reverted, and the contract
+returned boolean true. Reading only the boolean makes the sweeper broadcast
+doomed transactions and burn the fee limit on every one. `interpretEstimate`
+in `@relay/tron` is a pure function for exactly this reason, tested against a
+captured reverting reply.
+
+**The sweeper reads the on-chain balance before it tries.** The ledger says the
+funds exist; the chain decides. One extra call turns "the transfer reverted for
+some reason" into "address holds 0 USDT, needs 475.2".
+
 **Payment state and webhook state are separate machines.** A payment whose
 funds are confirmed on-chain is settled, permanently, whatever the merchant's
 HTTP endpoint does afterwards. Collapsing the two — as the design mockups do

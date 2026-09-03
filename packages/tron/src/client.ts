@@ -12,6 +12,7 @@
  */
 
 import type { RawTransaction, RawTransactionInfo } from './types.ts';
+import { interpretEstimate, decodeHexMessage, type EstimateResult, type RawEstimate } from './estimate.ts';
 
 export class TronError extends Error {
   override readonly name = 'TronError';
@@ -168,28 +169,39 @@ export class TronClient {
   /**
    * Simulate the transfer without sending it.
    *
-   * Two things this answers before any money moves: how much energy the call
-   * needs, and whether it would revert. A sweep that reverts still burns the
-   * fee, so finding out here is free and finding out on chain is not.
+   * A reverting transfer still burns the fee limit, and finding out here costs
+   * nothing. Interpreting the reply is delegated to `interpretEstimate`, which
+   * is where the subtlety lives and where the tests are.
    */
   async estimateTransfer(input: BuildTransferInput): Promise<EstimateResult> {
-    const raw = await this.#post<{
-      energy_used?: number;
-      result?: { result?: boolean; message?: string };
-    }>('/wallet/triggerconstantcontract', {
+    const raw = await this.#post<RawEstimate>('/wallet/triggerconstantcontract', {
       owner_address: input.ownerHex,
       contract_address: input.contractHex,
       function_selector: 'transfer(address,uint256)',
       parameter: input.parameterHex,
       call_value: 0,
     });
+    return interpretEstimate(raw);
+  }
 
-    const message = raw.result?.message;
-    return {
-      energyUsed: BigInt(raw.energy_used ?? 0),
-      willSucceed: raw.result?.result === true,
-      message: message === undefined ? undefined : decodeHexMessage(message),
-    };
+  /** TRC20 balance of an address, straight from the contract. */
+  async readTokenBalance(contractHex: string, ownerHex: string): Promise<bigint> {
+    const raw = await this.#post<{ constant_result?: string[]; result?: { result?: boolean } }>(
+      '/wallet/triggerconstantcontract',
+      {
+        owner_address: ownerHex,
+        contract_address: contractHex,
+        function_selector: 'balanceOf(address)',
+        parameter: ownerHex.slice(2).padStart(64, '0'),
+        call_value: 0,
+      },
+    );
+
+    const value = raw.constant_result?.[0];
+    if (raw.result?.result !== true || value === undefined || value === '') {
+      throw new TronError('Could not read the token balance', true);
+    }
+    return BigInt(`0x${value}`);
   }
 
   /**
@@ -266,17 +278,6 @@ function parseHeader(raw: RawBlock): BlockHeader {
   };
 }
 
-/** Node error messages arrive hex-encoded more often than not. */
-function decodeHexMessage(message: string): string {
-  if (message === '' || !/^[0-9a-fA-F]+$/.test(message) || message.length % 2 !== 0) {
-    return message;
-  }
-  try {
-    return Buffer.from(message, 'hex').toString('utf8');
-  } catch {
-    return message;
-  }
-}
 
 /** Network resource prices, set by governance vote rather than by us. */
 export interface ChainPrices {
@@ -295,9 +296,3 @@ export interface BuildTransferInput {
   readonly feeLimitSun: number;
 }
 
-export interface EstimateResult {
-  readonly energyUsed: bigint;
-  /** False when the call would revert — a sweep that would burn the fee limit. */
-  readonly willSucceed: boolean;
-  readonly message: string | undefined;
-}
