@@ -3,12 +3,20 @@
  */
 
 import { DEFAULT_SWEEP_POLICY, type SweepPolicy } from '@relay/core';
-import { DepositWallet } from '@relay/wallet';
+import { DepositWallet, isValidAddress } from '@relay/wallet';
 
 export interface SweeperConfig {
   readonly fullNode: string;
   readonly apiKey: string | undefined;
   readonly usdtContract: string;
+  /**
+   * The one wallet every user address is consolidated into.
+   *
+   * Required, and validated at startup rather than at the first sweep: an
+   * unset or mistyped treasury is the difference between money arriving and
+   * money gone.
+   */
+  readonly treasuryAddress: string;
   readonly wallet: DepositWallet;
   readonly policy: SweepPolicy;
   /**
@@ -51,11 +59,22 @@ function requireEnv(name: string): string {
   return value.trim();
 }
 
+function requireTreasury(): string {
+  const address = requireEnv('TREASURY_ADDRESS');
+  // Base58Check catches a mistyped character here rather than on chain,
+  // where the funds would be gone.
+  if (!isValidAddress(address)) {
+    throw new Error('TREASURY_ADDRESS is not a valid TRON address: ' + address);
+  }
+  return address;
+}
+
 export function loadSweeperConfig(): SweeperConfig {
   return Object.freeze({
     fullNode: requireEnv('TRON_FULL_NODE'),
     apiKey: process.env['TRONGRID_API_KEY']?.trim() || undefined,
     usdtContract: requireEnv('USDT_CONTRACT'),
+    treasuryAddress: requireTreasury(),
     wallet: DepositWallet.fromMnemonic(requireEnv('WALLET_MNEMONIC')),
     policy: {
       maxFeeBps: BigInt(intEnv('SWEEP_MAX_FEE_BPS', Number(DEFAULT_SWEEP_POLICY.maxFeeBps))),

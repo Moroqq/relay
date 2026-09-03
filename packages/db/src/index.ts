@@ -9,3 +9,4 @@ export * from './webhooks.ts';
 export * from './sweeps.ts';
 export * from './users.ts';
 export * from './deposits.ts';
+export * from './user-sweeps.ts';

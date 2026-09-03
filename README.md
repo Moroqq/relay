@@ -25,7 +25,8 @@ Nile head and delivered to the merchant with a verifiable signature.
 | Sweeping to the merchant (`@relay/sweeper`) | done, 26 tests; broadcast off by default |
 | Energy delegation (stake instead of burn) | next |
 | Account model: users, permanent addresses, deposits | done, 42 tests |
-| Sweeping user addresses via the sweeper | next |
+| Consolidating user addresses into the treasury | done, 11 tests |
+| Paying merchants out of the treasury | next |
 | Price feed for the sweep decision | next |
 | Console + merchant dashboard | later |
 
@@ -126,6 +127,22 @@ most custody licences forbid earning on client balances in the first place. But
 every movement is still written to a double-entry ledger from day one, because
 retrofitting one into a live payment system is months of work and guaranteed
 discrepancies. Switching to custodial later is a policy change, not a rewrite.
+
+**Consolidating into a treasury does not discharge what we owe.** A payment
+sweep sends funds to the merchant's own wallet, so the debt leaves with the
+money. A user sweep sends them to our treasury, where they are still ours to
+hold and still the merchant's to claim — so the ledger records a movement
+between two of our own asset accounts and leaves `merchant.payable`
+untouched. Clearing it there would show us owing nothing while holding
+somebody else's money. There is a test named for exactly that.
+
+The consequence is that consolidating makes Relay custodial in effect, and
+paying merchants out becomes a separate flow that does not exist yet.
+
+**The chain decides how much to sweep, not the ledger.** A user may have
+topped up since we last looked, or a previous sweep may have landed after it.
+The balance is read from the token contract immediately before building the
+transfer.
 
 **A deposit cannot exist without the transfer that created it.** `(tx_hash,
 log_index)` is unique, so a block re-read after a restart or a reorg records
