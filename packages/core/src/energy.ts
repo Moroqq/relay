@@ -44,6 +44,30 @@ export const NO_HOLDINGS: ResourceHoldings = Object.freeze({
   bandwidthBytes: 0n,
 });
 
+/**
+ * Bandwidth every TRON account is given each day, free, whether or not it has
+ * staked anything. Read from the chain as `getFreeNetLimit`; 600 bytes at the
+ * time of writing.
+ *
+ * A TRC20 transfer is about 345 bytes, so an address that is swept once a day
+ * pays nothing for bandwidth at all. Charging for it — as the first version of
+ * this model did — overstates the cost of every sweep, and in the delegated
+ * energy case it overstates it by the entire amount, because bandwidth was the
+ * only thing left to pay for.
+ */
+export const FREE_BANDWIDTH_PER_DAY = 600n;
+
+/**
+ * What an account has to spend before buying anything: its free daily
+ * bandwidth, plus whatever energy has been delegated to it.
+ */
+export function dailyHoldings(delegatedEnergy = 0n): ResourceHoldings {
+  return Object.freeze({
+    energyUnits: delegatedEnergy,
+    bandwidthBytes: FREE_BANDWIDTH_PER_DAY,
+  });
+}
+
 export interface CostBreakdown {
   /** Energy that must be paid for, after using what the account holds. */
   readonly energyShortfall: bigint;
@@ -67,7 +91,7 @@ const zeroFloor = (value: bigint): bigint => (value > 0n ? value : 0n);
 export function estimateCost(
   demand: ResourceDemand,
   prices: ResourcePrices,
-  holdings: ResourceHoldings = NO_HOLDINGS,
+  holdings: ResourceHoldings = dailyHoldings(),
 ): CostBreakdown {
   const energyShortfall = zeroFloor(demand.energyUnits - holdings.energyUnits);
   const bandwidthShortfall = zeroFloor(demand.bandwidthBytes - holdings.bandwidthBytes);
