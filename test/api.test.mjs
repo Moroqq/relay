@@ -323,3 +323,78 @@ test('user endpoints need a key like everything else', async () => {
   const res = await app.inject({ method: 'POST', url: '/v1/users', payload: { ref: 'x' } });
   assert.equal(res.statusCode, 401);
 });
+
+// --- balance and withdrawals -------------------------------------------------
+
+test('a new merchant has an empty balance', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/v1/balance',
+    headers: { authorization: `Bearer ${keyB}` },
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), {
+    object: 'balance',
+    asset: 'USDT',
+    owed: '0.000000',
+    reserved: '0.000000',
+    available: '0.000000',
+  });
+});
+
+test('withdrawing more than is available is refused, and says why', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/v1/payouts',
+    headers: { authorization: `Bearer ${keyB}`, 'content-type': 'application/json' },
+    payload: { amount: '100.00', to_address: 'TKxUU8588Zdt44Ues3p62gULLXtgTJ2CGb' },
+  });
+
+  // 422, not 400: the request is well formed, the balance simply is not there.
+  assert.equal(res.statusCode, 422);
+  assert.equal(res.json().error.code, 'insufficient_balance');
+  assert.match(res.json().error.detail, /in flight/);
+});
+
+test('a mistyped payout address is caught before anything is signed', async () => {
+  const good = 'TKxUU8588Zdt44Ues3p62gULLXtgTJ2CGb';
+  const typo = good.slice(0, 10) + (good[10] === 'a' ? 'b' : 'a') + good.slice(11);
+
+  for (const to of [typo, 'not-an-address', '', 'TKxUU8588']) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/payouts',
+      headers: { authorization: `Bearer ${keyB}`, 'content-type': 'application/json' },
+      payload: { amount: '1.00', to_address: to },
+    });
+    assert.equal(res.statusCode, 400, `should reject ${JSON.stringify(to)}`);
+    assert.equal(res.json().error.code, 'invalid_address');
+  }
+});
+
+test('payout amounts follow the same rules as everywhere else', async () => {
+  const to = 'TKxUU8588Zdt44Ues3p62gULLXtgTJ2CGb';
+  for (const payload of [
+    { amount: 100, to_address: to },
+    { amount: '0', to_address: to },
+    { amount: '1.0000001', to_address: to },
+    { to_address: to },
+  ]) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/payouts',
+      headers: { authorization: `Bearer ${keyB}`, 'content-type': 'application/json' },
+      payload,
+    });
+    assert.equal(res.statusCode, 400, JSON.stringify(payload));
+    assert.equal(res.json().error.code, 'invalid_amount');
+  }
+});
+
+test('balance and payouts need a key', async () => {
+  for (const url of ['/v1/balance', '/v1/payouts']) {
+    const res = await app.inject({ method: 'GET', url });
+    assert.equal(res.statusCode, 401);
+  }
+});

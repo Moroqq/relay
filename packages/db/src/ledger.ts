@@ -72,6 +72,7 @@ export interface PostOptions {
   readonly asset: Asset;
   readonly legs: readonly LedgerLeg[];
   readonly paymentId?: string | null;
+  readonly payoutId?: string | null;
   readonly reference?: string | null;
   readonly memo?: string | null;
 }
@@ -91,14 +92,15 @@ export async function postLedgerTransaction(
   const transactionId = newId('ledgerTransaction');
 
   await client.query(
-    `INSERT INTO ledger_transactions (id, kind, payment_id, reference, memo)
-     VALUES ($1, $2, $3, $4, $5)`,
+    `INSERT INTO ledger_transactions (id, kind, payment_id, reference, memo, payout_id)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
     [
       transactionId,
       options.kind,
       options.paymentId ?? null,
       options.reference ?? null,
       options.memo ?? null,
+      options.payoutId ?? null,
     ],
   );
 

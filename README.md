@@ -26,7 +26,8 @@ Nile head and delivered to the merchant with a verifiable signature.
 | Energy delegation (stake instead of burn) | next |
 | Account model: users, permanent addresses, deposits | done, 42 tests |
 | Consolidating user addresses into the treasury | done, 11 tests |
-| Paying merchants out of the treasury | next |
+| Merchant balance and payout requests | done, 20 tests |
+| Sending approved payouts on chain | next |
 | Price feed for the sweep decision | next |
 | Console + merchant dashboard | later |
 
@@ -117,6 +118,55 @@ user for as long as the account exists, so attribution needs no unique-amount
 tricks. `GET /v1/deposits` reads them back, and a `deposit.credited` webhook
 carries the same fields the API returns — built from the same serializer, so
 the two cannot drift.
+
+
+## Money in, money out
+
+```
+deposit credited      chain.deposits  +480    merchant.payable  −475.20
+                                              platform.fee_revenue −4.80
+consolidated          chain.deposits  −480    chain.treasury    +480
+payout completed      merchant.payable +400   chain.treasury    −400
+```
+
+Our percentage is taken once, when a deposit is credited. What the ledger owes
+a merchant is already net of it, so a payout is pure debt settlement — the
+liability moves toward zero and the treasury drops by what actually left.
+
+A separate withdrawal fee exists and defaults to zero. Where it is set, the
+merchant's balance drops by the full amount they asked for, less leaves the
+wallet, and the difference is ours.
+
+### What a payout may not do
+
+Sending to an address we do not own is the only irreversible operation here,
+so it is the most constrained:
+
+- **The available balance is derived from ledger entries**, never from a
+  stored column that could drift from them.
+- **Requests in flight reserve their amount**, so two cannot each spend the
+  same balance, and the project row is locked while the check runs — without
+  that, both would read the same figure and both would pass.
+- **Nothing leaves unattended by default.** `payout_auto_approve_units` is
+  zero, meaning every payout waits for a person. Raising it is a deliberate
+  act.
+- **A rejected payout releases what it reserved**, and cannot then be
+  approved.
+- **The destination checksum is verified at request time**, while the money is
+  still ours. On chain a mistyped character is simply gone.
+- **The signed transaction is persisted before broadcast**, as with sweeps.
+  Here the stake is higher: a rebuilt transaction pays a merchant twice.
+
+```bash
+curl http://127.0.0.1:3000/v1/balance -H "Authorization: Bearer ak_test_..."
+```
+
+```json
+{ "object": "balance", "owed": "990.000000", "reserved": "100.000000", "available": "890.000000" }
+```
+
+Approving a payout is deliberately not in this API. It is our decision, not the
+merchant's, and belongs to the operations console.
 
 ## Decisions worth knowing
 

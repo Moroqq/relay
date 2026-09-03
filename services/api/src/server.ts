@@ -9,6 +9,7 @@ import type { DepositWallet } from '@relay/wallet';
 import { ApiError, unauthorized } from './errors.ts';
 import { registerPaymentRoutes } from './routes/payments.ts';
 import { registerUserRoutes } from './routes/users.ts';
+import { registerPayoutRoutes } from './routes/payouts.ts';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -92,6 +93,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 
       registerPaymentRoutes(scope, options);
       registerUserRoutes(scope, options);
+      registerPayoutRoutes(scope);
     },
     { prefix: '/v1' },
   );

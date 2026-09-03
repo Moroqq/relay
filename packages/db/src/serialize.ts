@@ -20,6 +20,7 @@ import { formatAmount, type Asset } from '@relay/core';
 import type { PaymentRecord } from './payments.ts';
 import type { EndUserRecord } from './users.ts';
 import type { DepositRecord } from './deposits.ts';
+import type { PayoutRecord, MerchantBalance } from './payouts.ts';
 
 export interface PaymentView {
   id: string;
@@ -120,5 +121,67 @@ export function serializeDeposit(deposit: DepositRecord): DepositView {
     tx_hash: deposit.txHash,
     detected_at: deposit.detectedAt.toISOString(),
     credited_at: deposit.creditedAt === null ? null : deposit.creditedAt.toISOString(),
+  };
+}
+
+export interface PayoutView {
+  id: string;
+  object: 'payout';
+  state: string;
+  asset: Asset;
+  /** What comes off the merchant's balance. */
+  amount: string;
+  /** Our charge on the withdrawal itself, if any. */
+  fee_amount: string;
+  /** What actually leaves for their wallet. */
+  net_amount: string;
+  to_address: string;
+  external_ref: string | null;
+  tx_hash: string | null;
+  rejected_reason: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export function serializePayout(payout: PayoutRecord): PayoutView {
+  const amount = (units: bigint): string => formatAmount(units, payout.asset);
+
+  return {
+    id: payout.id,
+    object: 'payout',
+    state: payout.state,
+    asset: payout.asset,
+    amount: amount(payout.amountUnits),
+    fee_amount: amount(payout.feeUnits),
+    net_amount: amount(payout.netUnits),
+    to_address: payout.toAddress,
+    external_ref: payout.externalRef,
+    tx_hash: payout.txHash,
+    rejected_reason: payout.rejectedReason,
+    created_at: payout.createdAt.toISOString(),
+    completed_at: payout.completedAt === null ? null : payout.completedAt.toISOString(),
+  };
+}
+
+export interface BalanceView {
+  object: 'balance';
+  asset: Asset;
+  /** Everything credited and not yet paid out. */
+  owed: string;
+  /** Claimed by payouts already in flight. */
+  reserved: string;
+  /** What a new payout may draw on. */
+  available: string;
+}
+
+export function serializeBalance(balance: MerchantBalance): BalanceView {
+  const amount = (units: bigint): string => formatAmount(units, balance.asset);
+
+  return {
+    object: 'balance',
+    asset: balance.asset,
+    owed: amount(balance.owedUnits),
+    reserved: amount(balance.reservedUnits),
+    available: amount(balance.availableUnits),
   };
 }
