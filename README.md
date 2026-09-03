@@ -24,6 +24,8 @@ Nile head and delivered to the merchant with a verifiable signature.
 | Webhook delivery worker (`@relay/webhooks`) | done, 17 tests |
 | Sweeping to the merchant (`@relay/sweeper`) | done, 26 tests; broadcast off by default |
 | Energy delegation (stake instead of burn) | next |
+| Account model: users, permanent addresses, deposits | done, 42 tests |
+| Sweeping user addresses via the sweeper | next |
 | Price feed for the sweep decision | next |
 | Console + merchant dashboard | later |
 
@@ -77,6 +79,44 @@ a unique index rather than by a read-then-insert check that any race defeats.
 A payment id belonging to another merchant returns 404, not 403. Otherwise the
 API would confirm which ids exist.
 
+
+## Two models
+
+Relay supports both shapes a crypto gateway comes in. They share everything
+underneath — addresses, the ledger, sweeping, webhook delivery — and differ
+only in what starts the story.
+
+| | Invoices | Accounts |
+|---|---|---|
+| Starts with | the merchant asking for an amount | money arriving |
+| Address | one per payment, retired after | one per user, permanent |
+| Attribution | by address, one payment deep | by address, for that user's life |
+| Can be short | yes — underpaid, overpaid, expired | no, there is nothing to be short of |
+| Suits | shops, one-off orders | exchanges, gaming, anything with a balance |
+
+The account model is the smaller of the two, because there is nothing to
+invoice:
+
+```bash
+curl -X POST http://127.0.0.1:3000/v1/users   -H "Authorization: Bearer ak_test_..."   -H "Content-Type: application/json"   -d '{"ref":"player-42"}'
+```
+
+```json
+{ "id": "USR_ZRZ52WZY1PH1THTX", "deposit_address": "THUMemLcZJ9R9XX6n1V8bwoRC4H2BmoXvk" }
+```
+
+`ref` is the merchant's own identifier for that person. The call is idempotent
+rather than a create: a merchant hitting it on every page load must get the
+same address every time, because users save addresses, print them into QR
+codes and set up recurring transfers to them. Reassigning one sends somebody's
+money to a stranger.
+
+After that the merchant waits. Every deposit to that address belongs to that
+user for as long as the account exists, so attribution needs no unique-amount
+tricks. `GET /v1/deposits` reads them back, and a `deposit.credited` webhook
+carries the same fields the API returns — built from the same serializer, so
+the two cannot drift.
+
 ## Decisions worth knowing
 
 **Non-custodial, with a full ledger anyway.** Funds pass through to the
@@ -86,6 +126,14 @@ most custody licences forbid earning on client balances in the first place. But
 every movement is still written to a double-entry ledger from day one, because
 retrofitting one into a live payment system is months of work and guaranteed
 discrepancies. Switching to custodial later is a policy change, not a rewrite.
+
+**A deposit cannot exist without the transfer that created it.** `(tx_hash,
+log_index)` is unique, so a block re-read after a restart or a reorg records
+nothing the second time. In the invoice model the equivalent guarantee had to
+be assembled from a matching step; here it is the primary fact.
+
+**A user's address is assigned once and never rotated.** There is no code path
+that changes it.
 
 **The ledger enforces itself in the database.** Every movement of money is
 recorded as entries whose signed amounts sum to zero, per asset, checked by a

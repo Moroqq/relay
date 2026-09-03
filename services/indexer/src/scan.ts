@@ -4,6 +4,7 @@
 
 import {
   filterOwnedAddresses,
+  recordDeposit,
   recordTransfers,
   setLastIndexedBlock,
   type ObservedTransfer as StoredTransfer,
@@ -19,6 +20,8 @@ export interface ScanResult {
   readonly transfersOurs: number;
   readonly inserted: number;
   readonly touchedPayments: readonly string[];
+  /** Deposits created by this block, in the account model. */
+  readonly newDeposits: readonly string[];
 }
 
 /**
@@ -31,6 +34,7 @@ export async function scanBlock(
   client: TronClient,
   config: IndexerConfig,
   blockNumber: number,
+  requiredConfirmations: number,
 ): Promise<ScanResult> {
   const [block, infos] = await Promise.all([
     client.getBlock(blockNumber),
@@ -58,6 +62,24 @@ export async function scanBlock(
 
   const { inserted, touchedPayments } = await recordTransfers(ours, blockNumber, block.timestamp);
 
+  // The two models share this walk. An address belongs to a payment or to a
+  // user, never both, so exactly one of the two calls does anything with it.
+  const newDeposits: string[] = [];
+  for (const transfer of ours) {
+    const created = await recordDeposit(
+      {
+        toAddress: transfer.to,
+        asset: transfer.asset,
+        amountUnits: transfer.amountUnits,
+        txHash: transfer.txHash,
+        logIndex: transfer.logIndex,
+        blockNumber,
+      },
+      requiredConfirmations,
+    );
+    if (created !== null) newDeposits.push(created.id);
+  }
+
   // Recorded before the position advances, so a crash between the two re-reads
   // the block rather than skipping it. Inserts are idempotent, so re-reading
   // costs nothing; skipping would lose a payment silently.
@@ -69,5 +91,6 @@ export async function scanBlock(
     transfersOurs: ours.length,
     inserted,
     touchedPayments,
+    newDeposits,
   };
 }

@@ -63,7 +63,7 @@ export async function findSweepCandidates(limit = 50): Promise<SweepCandidate[]>
 
 export interface SweepRecord {
   readonly id: string;
-  readonly paymentId: string;
+  readonly paymentId: string | null;
   readonly fromAddress: string;
   readonly toAddress: string;
   readonly asset: Asset;
@@ -77,7 +77,7 @@ export interface SweepRecord {
 function mapSweep(row: Record<string, unknown>): SweepRecord {
   return Object.freeze({
     id: row['id'] as string,
-    paymentId: row['payment_id'] as string,
+    paymentId: (row['payment_id'] as string | null) ?? null,
     fromAddress: row['from_address'] as string,
     toAddress: row['to_address'] as string,
     asset: row['asset'] as Asset,
@@ -89,15 +89,23 @@ function mapSweep(row: Record<string, unknown>): SweepRecord {
   });
 }
 
-const SWEEP_COLUMNS = `id, payment_id, from_address, to_address, asset,
+const SWEEP_COLUMNS = `id, payment_id, end_user_id, from_address, to_address, asset,
                        amount_units, state, tx_hash, signed_tx, attempt`;
 
-/** Claim a payment for sweeping. Returns null if another worker got there first. */
+/**
+ * Claim a payment for sweeping. Returns null if another worker got there first.
+ *
+ * The conflict target repeats the index's predicate because the index is
+ * partial: once sweeps could belong to a user instead of a payment,
+ * `UNIQUE (payment_id)` became `UNIQUE (payment_id) WHERE payment_id IS NOT
+ * NULL`, and Postgres will not match a partial index unless the statement
+ * names the same condition.
+ */
 export async function planSweep(candidate: SweepCandidate, toAddress: string): Promise<SweepRecord | null> {
   const { rows } = await getPool().query(
     `INSERT INTO sweeps (id, payment_id, from_address, to_address, asset, amount_units)
      VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (payment_id) DO NOTHING
+     ON CONFLICT (payment_id) WHERE payment_id IS NOT NULL DO NOTHING
      RETURNING ${SWEEP_COLUMNS}`,
     [
       newId('ledgerTransaction').replace('LTX_', 'SWP_'),
@@ -191,11 +199,18 @@ export async function recordConfirmed(
     if (rows[0] === undefined) return;
 
     const sweep = mapSweep(rows[0]);
-    const { rows: paymentRows } = await client.query<{ project_id: string }>(
-      'SELECT project_id FROM payments WHERE id = $1',
-      [sweep.paymentId],
+
+    // A sweep belongs to a payment or to a user, never both. Either way the
+    // debt being discharged is the project's.
+    const { rows: subject } = await client.query<{ project_id: string }>(
+      `SELECT COALESCE(p.project_id, u.project_id) AS project_id
+         FROM sweeps s
+         LEFT JOIN payments p ON p.id = s.payment_id
+         LEFT JOIN end_users u ON u.id = s.end_user_id
+        WHERE s.id = $1`,
+      [sweepId],
     );
-    const projectId = paymentRows[0]!.project_id;
+    const projectId = subject[0]!.project_id;
 
     await postLedgerTransaction(client, {
       kind: 'payout.sent',

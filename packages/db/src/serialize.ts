@@ -18,6 +18,8 @@
 import { formatAmount, type Asset } from '@relay/core';
 
 import type { PaymentRecord } from './payments.ts';
+import type { EndUserRecord } from './users.ts';
+import type { DepositRecord } from './deposits.ts';
 
 export interface PaymentView {
   id: string;
@@ -56,5 +58,67 @@ export function serializePayment(payment: PaymentRecord): PaymentView {
     created_at: payment.createdAt.toISOString(),
     expires_at: payment.expiresAt.toISOString(),
     settled_at: payment.settledAt === null ? null : payment.settledAt.toISOString(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The account model
+// ---------------------------------------------------------------------------
+
+export interface EndUserView {
+  id: string;
+  object: 'user';
+  ref: string;
+  deposit_address: string;
+  status: string;
+  created_at: string;
+  last_deposit_at: string | null;
+}
+
+export function serializeEndUser(user: EndUserRecord): EndUserView {
+  return {
+    id: user.id,
+    object: 'user',
+    ref: user.externalRef,
+    deposit_address: user.depositAddress,
+    status: user.status,
+    created_at: user.createdAt.toISOString(),
+    last_deposit_at: user.lastDepositAt === null ? null : user.lastDepositAt.toISOString(),
+  };
+}
+
+export interface DepositView {
+  id: string;
+  object: 'deposit';
+  user_id: string;
+  state: string;
+  asset: Asset;
+  amount: string;
+  fee_amount: string | null;
+  net_amount: string | null;
+  confirmations: number;
+  required_confirmations: number;
+  tx_hash: string;
+  detected_at: string;
+  credited_at: string | null;
+}
+
+export function serializeDeposit(deposit: DepositRecord): DepositView {
+  const amount = (units: bigint): string => formatAmount(units, deposit.asset);
+
+  return {
+    id: deposit.id,
+    object: 'deposit',
+    user_id: deposit.endUserId,
+    state: deposit.state,
+    asset: deposit.asset,
+    amount: amount(deposit.amountUnits),
+    fee_amount: deposit.feeUnits === null ? null : amount(deposit.feeUnits),
+    net_amount: deposit.netUnits === null ? null : amount(deposit.netUnits),
+    confirmations: deposit.confirmations,
+    required_confirmations: deposit.requiredConfirmations,
+    tx_hash: deposit.txHash,
+    detected_at: deposit.detectedAt.toISOString(),
+    credited_at: deposit.creditedAt === null ? null : deposit.creditedAt.toISOString(),
   };
 }

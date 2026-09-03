@@ -9,7 +9,9 @@
 
 import {
   closePool,
+  creditDeposit,
   expireStalePayments,
+  findOpenDeposits,
   getLastIndexedBlock,
   refreshConfirmations,
   settlePayment,
@@ -20,6 +22,12 @@ import { scanBlock } from './scan.ts';
 import { TronClient } from '@relay/tron';
 
 const config = loadIndexerConfig();
+
+/**
+ * How deep a transfer must be before its money is treated as ours.
+ * Read here rather than per deposit so one setting governs both models.
+ */
+const REQUIRED_CONFIRMATIONS = Number(process.env['CONFIRMATIONS_REQUIRED'] ?? 20);
 const tron = new TronClient({ baseUrl: config.fullNode, apiKey: config.apiKey });
 
 let running = true;
@@ -68,6 +76,35 @@ async function settleAll(paymentIds: Iterable<string>): Promise<void> {
   }
 }
 
+
+/**
+ * Bring open deposits up to date with the chain.
+ *
+ * Depth is computed from the head every pass rather than incremented, so a
+ * restart or a missed cycle cannot strand a deposit one confirmation short of
+ * being credited.
+ */
+async function creditReadyDeposits(head: number): Promise<void> {
+  for (const deposit of await findOpenDeposits()) {
+    const confirmations = Math.max(head - deposit.blockNumber + 1, 0);
+    try {
+      const outcome = await creditDeposit(deposit.id, confirmations);
+      if (outcome?.changed === true && outcome.deposit.state === 'credited') {
+        log('deposit credited', {
+          deposit: outcome.deposit.id,
+          user: outcome.deposit.endUserId,
+          net: outcome.deposit.netUnits?.toString() ?? '0',
+          confirmations,
+        });
+      }
+    } catch (error) {
+      // One deposit failing must not stop the rest; it stays open and is
+      // retried next pass.
+      log('crediting failed', { deposit: deposit.id, error: (error as Error).message });
+    }
+  }
+}
+
 async function pass(): Promise<void> {
   const head = await tron.getHead();
   const from = await resumePoint(head.number);
@@ -77,7 +114,10 @@ async function pass(): Promise<void> {
   if (from <= head.number) {
     const to = Math.min(head.number, from + config.batchSize - 1);
     for (let blockNumber = from; blockNumber <= to && running; blockNumber++) {
-      const result = await scanBlock(tron, config, blockNumber);
+      const result = await scanBlock(tron, config, blockNumber, REQUIRED_CONFIRMATIONS);
+      for (const depositId of result.newDeposits) {
+        log('deposit detected', { deposit: depositId, block: blockNumber });
+      }
       for (const paymentId of result.touchedPayments) touched.add(paymentId);
       if (result.transfersOurs > 0) {
         log('recorded transfers', {
@@ -97,6 +137,7 @@ async function pass(): Promise<void> {
   for (const paymentId of await refreshConfirmations(head.number)) touched.add(paymentId);
 
   await settleAll(touched);
+  await creditReadyDeposits(head.number);
 
   const expired = await expireStalePayments();
   if (expired.length > 0) log('expired', { count: expired.length });

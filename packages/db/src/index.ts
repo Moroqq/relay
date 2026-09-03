@@ -7,3 +7,5 @@ export * from './ledger.ts';
 export * from './settlement.ts';
 export * from './webhooks.ts';
 export * from './sweeps.ts';
+export * from './users.ts';
+export * from './deposits.ts';

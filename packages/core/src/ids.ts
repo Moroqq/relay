@@ -23,6 +23,8 @@ const RANDOM_LENGTH = 16;
 export const ID_PREFIXES = {
   merchant: 'MER',
   project: 'PRJ',
+  endUser: 'USR',
+  deposit: 'DEP',
   payment: 'PAY',
   apiKey: 'AKY',
   webhookDelivery: 'WHD',

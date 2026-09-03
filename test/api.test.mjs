@@ -60,11 +60,26 @@ after(async () => {
     ).catch(() => {});
     await getPool().query('DELETE FROM payments WHERE project_id = $1', [projectId]);
   }
+  // Users hold a permanent address, so they and it go before the project.
+  // Anything with ledger entries behind it is left alone: those are
+  // append-only by design, and a teardown that could erase them would prove
+  // the guarantee is not real.
   for (const projectId of created.projects) {
-    await getPool().query('DELETE FROM projects WHERE id = $1', [projectId]);
+    const { rows: addresses } = await getPool().query(
+      'SELECT deposit_address FROM end_users WHERE project_id = $1',
+      [projectId],
+    );
+    await getPool().query('DELETE FROM end_users WHERE project_id = $1', [projectId]).catch(() => {});
+    if (addresses.length > 0) {
+      await getPool()
+        .query('DELETE FROM deposit_addresses WHERE address = ANY($1::text[])',
+          [addresses.map((r) => r.deposit_address)])
+        .catch(() => {});
+    }
+    await getPool().query('DELETE FROM projects WHERE id = $1', [projectId]).catch(() => {});
   }
   for (const merchantId of created.merchants) {
-    await getPool().query('DELETE FROM merchants WHERE id = $1', [merchantId]);
+    await getPool().query('DELETE FROM merchants WHERE id = $1', [merchantId]).catch(() => {});
   }
   await closePool();
 });
@@ -224,4 +239,87 @@ test('health needs no credentials', async () => {
   const res = await app.inject({ method: 'GET', url: '/health' });
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.json(), { status: 'ok' });
+});
+
+// --- the account model -------------------------------------------------------
+
+const postUser = (key, payload) =>
+  app.inject({
+    method: 'POST',
+    url: '/v1/users',
+    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+    payload,
+  });
+
+test('asking for a user returns a deposit address', async () => {
+  const res = await postUser(keyA, { ref: `shop-user-${Date.now()}` });
+
+  assert.equal(res.statusCode, 201);
+  const body = res.json();
+  assert.equal(body.object, 'user');
+  assert.match(body.id, /^USR_/);
+  assert.match(body.deposit_address, /^T[1-9A-HJ-NP-Za-km-z]{33}$/);
+  assert.equal(body.last_deposit_at, null);
+});
+
+test('asking again is idempotent, not a second address', async () => {
+  // A merchant calling this on every page load must get the same address.
+  const ref = `repeat-${Date.now()}`;
+  const first = await postUser(keyA, { ref });
+  const second = await postUser(keyA, { ref });
+
+  assert.equal(first.statusCode, 201);
+  assert.equal(second.statusCode, 200); // 200, not 201: recognised as a repeat
+  assert.equal(first.json().deposit_address, second.json().deposit_address);
+});
+
+test('a bad user ref is refused with an explanation', async () => {
+  for (const payload of [{}, { ref: '' }, { ref: 42 }, { ref: 'x'.repeat(201) }]) {
+    const res = await postUser(keyA, payload);
+    assert.equal(res.statusCode, 400, JSON.stringify(payload));
+    assert.equal(res.json().error.code, 'invalid_user_ref');
+  }
+});
+
+test('merchants cannot see each other s users', async () => {
+  const ref = `shared-${Date.now()}`;
+  const mine = await postUser(keyA, { ref });
+  const theirs = await postUser(keyB, { ref });
+
+  // The same ref in two projects is two different people.
+  assert.equal(theirs.statusCode, 201);
+  assert.notEqual(mine.json().id, theirs.json().id);
+  assert.notEqual(mine.json().deposit_address, theirs.json().deposit_address);
+
+  const lookup = await app.inject({
+    method: 'GET',
+    url: `/v1/users/${ref}`,
+    headers: { authorization: `Bearer ${keyB}` },
+  });
+  assert.equal(lookup.json().id, theirs.json().id);
+});
+
+test('an unknown user is a 404', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/v1/users/nobody-here',
+    headers: { authorization: `Bearer ${keyA}` },
+  });
+  assert.equal(res.statusCode, 404);
+});
+
+test('the deposit list starts empty and is scoped to the caller', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/v1/deposits',
+    headers: { authorization: `Bearer ${keyA}` },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().object, 'list');
+  for (const d of res.json().data) assert.match(d.id, /^DEP_/);
+});
+
+test('user endpoints need a key like everything else', async () => {
+  const res = await app.inject({ method: 'POST', url: '/v1/users', payload: { ref: 'x' } });
+  assert.equal(res.statusCode, 401);
 });
