@@ -107,6 +107,19 @@ export async function sweepPayment(
   // the decision is made again next pass, against fresh prices.
   if (!decision.worthwhile) return { kind: 'uneconomic', decision };
 
+
+  // A dry run proves the transaction can be built, verified and signed, and
+  // stops there — without writing anything. The first version planned the
+  // sweep and stored it as signed before checking for a dry run, so every dry
+  // run left a sweep in flight that would never be broadcast, and the address
+  // it belonged to could never be swept again.
+  if (config.dryRun) {
+    const built = await client.buildTransfer(buildInput);
+    const signed = signTransaction(built, { ownerHex, contractHex, dataHex },
+      config.wallet.derivePrivateKey(candidate.derivationIndex));
+    return { kind: 'signed', txHash: signed.txID!, decision };
+  }
+
   const sweep = await planSweep(candidate, payout);
   if (sweep === null) {
     return { kind: 'skipped', reason: 'another worker already claimed this payment' };
@@ -123,8 +136,6 @@ export async function sweepPayment(
 
     const txHash = signed.txID!;
     await recordSigned(sweep.id, txHash, signed);
-
-    if (config.dryRun) return { kind: 'signed', txHash, decision };
 
     const result = await client.broadcast(signed);
     if (!result.accepted) {
@@ -208,6 +219,19 @@ export async function sweepUserAddress(
   const decision = decideSweep(onChain, cost.totalSun, config.trxPriceUnits, config.policy);
   if (!decision.worthwhile) return { kind: 'uneconomic', decision };
 
+
+  // A dry run proves the transaction can be built, verified and signed, and
+  // stops there — without writing anything. The first version planned the
+  // sweep and stored it as signed before checking for a dry run, so every dry
+  // run left a sweep in flight that would never be broadcast, and the address
+  // it belonged to could never be swept again.
+  if (config.dryRun) {
+    const built = await client.buildTransfer(buildInput);
+    const signed = signTransaction(built, { ownerHex, contractHex, dataHex },
+      config.wallet.derivePrivateKey(candidate.derivationIndex));
+    return { kind: 'signed', txHash: signed.txID!, decision };
+  }
+
   const sweep = await planUserSweep(candidate, config.treasuryAddress, onChain);
   if (sweep === null) {
     return { kind: 'skipped', reason: 'a sweep of this address is already in flight' };
@@ -223,8 +247,6 @@ export async function sweepUserAddress(
 
     const txHash = signed.txID!;
     await recordSigned(sweep.id, txHash, signed);
-
-    if (config.dryRun) return { kind: 'signed', txHash, decision };
 
     const result = await client.broadcast(signed);
     if (!result.accepted) {

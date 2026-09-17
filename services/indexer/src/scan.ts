@@ -5,6 +5,7 @@
 import {
   filterOwnedAddresses,
   recordDeposit,
+  recordInternalTransfer,
   recordTransfers,
   setLastIndexedBlock,
   type ObservedTransfer as StoredTransfer,
@@ -22,6 +23,8 @@ export interface ScanResult {
   readonly touchedPayments: readonly string[];
   /** Deposits created by this block, in the account model. */
   readonly newDeposits: readonly string[];
+  /** Movements between the treasury and the hot wallet booked from this block. */
+  readonly internalTransfers: number;
 }
 
 /**
@@ -80,6 +83,20 @@ export async function scanBlock(
     if (created !== null) newDeposits.push(created.id);
   }
 
+  // Refills and returns between our own wallets. Checked against every
+  // transfer in the block, not just the ones to deposit addresses, because
+  // neither wallet is a deposit address.
+  let internalTransfers = 0;
+  if (config.operational !== null) {
+    for (const transfer of seen) {
+      const booked = await recordInternalTransfer(
+        { ...transfer, blockNumber, blockTime: block.timestamp },
+        config.operational,
+      );
+      if (booked !== null) internalTransfers += 1;
+    }
+  }
+
   // Recorded before the position advances, so a crash between the two re-reads
   // the block rather than skipping it. Inserts are idempotent, so re-reading
   // costs nothing; skipping would lose a payment silently.
@@ -92,5 +109,6 @@ export async function scanBlock(
     inserted,
     touchedPayments,
     newDeposits,
+    internalTransfers,
   };
 }

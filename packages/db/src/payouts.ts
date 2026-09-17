@@ -92,6 +92,7 @@ export interface PayoutRecord {
   readonly feeUnits: bigint;
   readonly netUnits: bigint;
   readonly toAddress: string;
+  readonly fromAddress: string | null;
   readonly state: PayoutState;
   readonly txHash: string | null;
   readonly signedTx: unknown;
@@ -104,7 +105,7 @@ export interface PayoutRecord {
 
 export const PAYOUT_COLUMNS = `
   id, project_id, external_ref, asset, amount_units, fee_units, net_units,
-  to_address, state, tx_hash, signed_tx, approved_by, rejected_reason,
+  to_address, from_address, state, tx_hash, signed_tx, approved_by, rejected_reason,
   attempt, created_at, completed_at
 `;
 
@@ -118,6 +119,7 @@ export function mapPayout(row: Record<string, unknown>): PayoutRecord {
     feeUnits: toBigInt(row['fee_units']),
     netUnits: toBigInt(row['net_units']),
     toAddress: row['to_address'] as string,
+    fromAddress: (row['from_address'] as string | null) ?? null,
     state: row['state'] as PayoutState,
     txHash: (row['tx_hash'] as string | null) ?? null,
     signedTx: row['signed_tx'] ?? null,
@@ -335,23 +337,71 @@ export async function findUnfinishedPayouts(limit = 50): Promise<PayoutRecord[]>
 }
 
 /**
- * Store the signed transaction before it goes out.
+ * Store the signed transaction before it goes out, and claim the payout.
  *
- * The same ordering as sweeps, for the same reason: a crash between signing
- * and broadcasting is survivable only if the retry re-sends these exact bytes.
- * Here the stake is higher, because a rebuilt transaction would pay a merchant
- * twice out of the treasury.
+ * This update is the claim. It only succeeds from `approved`, so of two
+ * workers that picked up the same payout exactly one gets a row back; the
+ * other must discard what it signed and send nothing.
+ *
+ * The first version accepted `signed` as a starting state too. Two workers
+ * would each sign a different transaction — TRON's id covers a timestamp, so
+ * they differ — the second would overwrite the first's bytes, and both would
+ * broadcast. The merchant would be paid twice out of the hot wallet.
+ *
+ * Returns whether this caller won. A caller that did not win must not
+ * broadcast.
  */
 export async function recordPayoutSigned(
   payoutId: string,
   txHash: string,
   signedTx: unknown,
-): Promise<void> {
-  await getPool().query(
-    `UPDATE payouts SET state = 'signed', tx_hash = $2, signed_tx = $3::jsonb
-      WHERE id = $1 AND state IN ('approved', 'signed')`,
-    [payoutId, txHash, JSON.stringify(signedTx)],
+  fromAddress: string,
+): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `UPDATE payouts
+        SET state = 'signed', tx_hash = $2, signed_tx = $3::jsonb, from_address = $4
+      WHERE id = $1 AND state = 'approved'`,
+    [payoutId, txHash, JSON.stringify(signedTx), fromAddress],
   );
+  return rowCount === 1;
+}
+
+/**
+ * Return a payout whose transaction can never land to the send queue.
+ *
+ * TRON transactions carry an expiry roughly a minute after they are built. A
+ * signed payout whose expiry has passed and which is not on chain will never
+ * be on chain, so it is safe to throw the bytes away and build again. The
+ * caller is responsible for having checked both of those things; the state
+ * guard here only makes sure nothing completed is ever reopened.
+ */
+export async function resetExpiredPayout(payoutId: string, reason: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `UPDATE payouts
+        SET state = 'approved', tx_hash = NULL, signed_tx = NULL, from_address = NULL,
+            error = $2
+      WHERE id = $1 AND state IN ('signed', 'broadcast')`,
+    [payoutId, reason.slice(0, 500)],
+  );
+  return rowCount === 1;
+}
+
+/**
+ * Stop trying to send a payout.
+ *
+ * Used when the transaction reverted on chain — the network took its fee and
+ * moved nothing — or when attempts are exhausted. Deliberately not a reset to
+ * `approved`: a revert usually means the hot wallet lacks funds or energy,
+ * and retrying automatically would burn a fee each time until someone
+ * noticed. `failed` releases the reservation and puts it in front of a person.
+ */
+export async function markPayoutFailed(payoutId: string, reason: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `UPDATE payouts SET state = 'failed', error = $2
+      WHERE id = $1 AND state IN ('approved', 'signed', 'broadcast')`,
+    [payoutId, reason.slice(0, 500)],
+  );
+  return rowCount === 1;
 }
 
 export async function recordPayoutBroadcast(payoutId: string): Promise<void> {
@@ -372,12 +422,12 @@ export async function recordPayoutFailure(payoutId: string, error: string): Prom
  * Record a completed payout and post it.
  *
  *   merchant.payable  +gross   the debt is settled
- *   chain.treasury    −net     that much left the wallet
+ *   chain.hot_wallet  −net     that much left the wallet that signed it
  *   platform.fee_revenue −fee  the withdrawal charge, if any
  *
  * The signs are worth reading carefully. `merchant.payable` is a liability and
  * therefore negative; adding to it moves it toward zero, which is what paying
- * somebody does. The treasury is an asset and goes down by what actually left,
+ * somebody does. The hot wallet is an asset and goes down by what actually left,
  * which is the net — the fee never leaves the building.
  */
 export async function recordPayoutCompleted(
@@ -406,7 +456,7 @@ export async function recordPayoutCompleted(
       memo: `paid ${payout.netUnits} to ${payout.toAddress}`,
       legs: [
         { code: ACCOUNT_CODES.merchantPayable, projectId: payout.projectId, amountUnits: payout.amountUnits },
-        { code: ACCOUNT_CODES.treasury, projectId: null, amountUnits: -payout.netUnits },
+        { code: ACCOUNT_CODES.hotWallet, projectId: null, amountUnits: -payout.netUnits },
         { code: ACCOUNT_CODES.feeRevenue, projectId: null, amountUnits: -payout.feeUnits },
       ],
     });
@@ -419,7 +469,7 @@ export async function recordPayoutCompleted(
         reference: payout.txHash,
         memo: `network fee for payout ${payout.id}`,
         legs: [
-          { code: ACCOUNT_CODES.treasury, projectId: null, amountUnits: -feeSun },
+          { code: ACCOUNT_CODES.hotWallet, projectId: null, amountUnits: -feeSun },
           { code: ACCOUNT_CODES.gasExpense, projectId: null, amountUnits: feeSun },
         ],
       });

@@ -3,6 +3,8 @@
  */
 
 import type { Asset } from '@relay/core';
+import type { OperationalAddresses } from '@relay/db';
+import { isValidAddress } from '@relay/wallet';
 
 export interface IndexerConfig {
   readonly fullNode: string;
@@ -14,6 +16,12 @@ export interface IndexerConfig {
   readonly batchSize: number;
   /** Where to start when the database has no recorded position. */
   readonly startBehindHead: number;
+  /**
+   * The treasury and hot wallet, so transfers between them can be booked.
+   * Addresses only: the indexer never holds a key. Null when either is unset,
+   * in which case refills simply go unrecorded until they are configured.
+   */
+  readonly operational: OperationalAddresses | null;
 }
 
 function intEnv(name: string, fallback: number): number {
@@ -24,6 +32,19 @@ function intEnv(name: string, fallback: number): number {
     throw new Error(`${name} must be a non-negative whole number, got ${JSON.stringify(raw)}`);
   }
   return parsed;
+}
+
+function readOperational(): OperationalAddresses | null {
+  const treasury = process.env['TREASURY_ADDRESS']?.trim();
+  const hotWallet = process.env['HOT_WALLET_ADDRESS']?.trim();
+  if (!treasury || !hotWallet) return null;
+  for (const [name, value] of [['TREASURY_ADDRESS', treasury], ['HOT_WALLET_ADDRESS', hotWallet]] as const) {
+    if (!isValidAddress(value)) throw new Error(`${name} is not a valid TRON address: ${value}`);
+  }
+  if (treasury === hotWallet) {
+    throw new Error('TREASURY_ADDRESS and HOT_WALLET_ADDRESS must be different wallets');
+  }
+  return { treasury, hotWallet };
 }
 
 export function loadIndexerConfig(): IndexerConfig {
@@ -47,5 +68,6 @@ export function loadIndexerConfig(): IndexerConfig {
     // A fresh install starts near the head rather than at the genesis block:
     // there are no deposit addresses in history to find.
     startBehindHead: intEnv('INDEXER_START_BEHIND_HEAD', 20),
+    operational: readOperational(),
   });
 }

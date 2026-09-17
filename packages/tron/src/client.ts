@@ -134,9 +134,22 @@ export class TronClient {
     return Array.isArray(raw) ? raw : [];
   }
 
-  /** One transaction's receipt, or null while it is still unconfirmed. */
-  async getTransactionInfo(txHash: string): Promise<RawTransactionInfo | null> {
-    const raw = await this.#post<RawTransactionInfo>('/wallet/gettransactioninfobyid', {
+/**
+   * One transaction's receipt, or null if the node does not know it.
+   *
+   * `solidified` asks the solidity node instead, which only reports
+   * transactions in blocks the network has irreversibly confirmed. That is the
+   * answer to "may I book this as done"; the ordinary node's answer is only
+   * "has this landed in a block that could still be orphaned".
+   */
+  async getTransactionInfo(
+    txHash: string,
+    options: { solidified?: boolean } = {},
+  ): Promise<RawTransactionInfo | null> {
+    const path = options.solidified === true
+      ? '/walletsolidity/gettransactioninfobyid'
+      : '/wallet/gettransactioninfobyid';
+    const raw = await this.#post<RawTransactionInfo>(path, {
       value: txHash,
     });
     // An unknown or pending transaction comes back as {}.
@@ -183,6 +196,35 @@ export class TronClient {
     });
     return interpretEstimate(raw);
   }
+
+/**
+   * What an account holds and can spend without paying for resources.
+   *
+   * The hot wallet needs both halves checked before a payout: TRX to cover
+   * whatever the network charges, and the energy it already has, which is
+   * what decides how much of that charge there will be. A payout attempted
+   * without enough of either fails on chain — after the fee is taken.
+   */
+  async getAccountState(addressHex: string): Promise<AccountState> {
+    const [account, resources] = await Promise.all([
+      this.#post<{ balance?: number }>('/wallet/getaccount', { address: addressHex }),
+      this.#post<{ EnergyLimit?: number; EnergyUsed?: number; freeNetLimit?: number; freeNetUsed?: number }>(
+        '/wallet/getaccountresource',
+        { address: addressHex },
+      ),
+    ]);
+
+    const energyAvailable = (resources.EnergyLimit ?? 0) - (resources.EnergyUsed ?? 0);
+    const bandwidthAvailable = (resources.freeNetLimit ?? 0) - (resources.freeNetUsed ?? 0);
+
+    return {
+      // An account that has never received anything comes back as {}.
+      trxSun: BigInt(account.balance ?? 0),
+      energyAvailable: BigInt(Math.max(energyAvailable, 0)),
+      freeBandwidthAvailable: BigInt(Math.max(bandwidthAvailable, 0)),
+    };
+  }
+
 
   /** TRC20 balance of an address, straight from the contract. */
   async readTokenBalance(contractHex: string, ownerHex: string): Promise<bigint> {
@@ -296,3 +338,10 @@ export interface BuildTransferInput {
   readonly feeLimitSun: number;
 }
 
+export interface AccountState {
+  readonly trxSun: bigint;
+  /** Energy the account can spend right now, staked or delegated to it. */
+  readonly energyAvailable: bigint;
+  /** What is left of today's free bandwidth allowance. */
+  readonly freeBandwidthAvailable: bigint;
+}

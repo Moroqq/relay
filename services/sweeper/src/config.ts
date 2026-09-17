@@ -3,7 +3,7 @@
  */
 
 import { DEFAULT_SWEEP_POLICY, type SweepPolicy } from '@relay/core';
-import { DepositWallet, isValidAddress } from '@relay/wallet';
+import { DepositWallet, deriveHotWallet, isValidAddress, type OperationalKey } from '@relay/wallet';
 
 export interface SweeperConfig {
   readonly fullNode: string;
@@ -17,6 +17,17 @@ export interface SweeperConfig {
    * money gone.
    */
   readonly treasuryAddress: string;
+  /**
+   * The wallet payouts are signed by. Derived on the server, which is exactly
+   * why it should only ever hold a working float.
+   */
+  readonly hotWallet: OperationalKey;
+  /**
+   * Payouts are broadcast only when PAYOUT_BROADCAST is exactly "true" —
+   * independently of sweeps, because this is the one flow that sends money to
+   * addresses we do not own.
+   */
+  readonly payoutsDryRun: boolean;
   readonly wallet: DepositWallet;
   readonly policy: SweepPolicy;
   /**
@@ -69,12 +80,42 @@ function requireTreasury(): string {
   return address;
 }
 
+/**
+ * Derive the hot wallet and cross-check it against the configured address.
+ *
+ * The indexer needs the hot wallet's address to recognise refills, and it
+ * deliberately does not hold the mnemonic. So the address is configured
+ * separately — and if it disagrees with what this mnemonic derives, one of the
+ * two is wrong, and refusing to start is the only safe answer. Carrying on
+ * would sign payouts from one wallet while the books watch another.
+ */
+function requireHotWallet(): OperationalKey {
+  const hot = deriveHotWallet(requireEnv('WALLET_MNEMONIC'));
+  const configured = process.env['HOT_WALLET_ADDRESS']?.trim();
+
+  if (configured === undefined || configured === '') {
+    throw new Error(
+      'HOT_WALLET_ADDRESS is not set. This mnemonic derives ' + hot.address +
+        ' at ' + hot.path + ' — set HOT_WALLET_ADDRESS to that, then fund it with TRX and a USDT float.',
+    );
+  }
+  if (configured !== hot.address) {
+    throw new Error(
+      'HOT_WALLET_ADDRESS is ' + configured + ' but WALLET_MNEMONIC derives ' + hot.address +
+        '. One of them is wrong; refusing to start rather than sign from a wallet the books are not watching.',
+    );
+  }
+  return hot;
+}
+
 export function loadSweeperConfig(): SweeperConfig {
   return Object.freeze({
     fullNode: requireEnv('TRON_FULL_NODE'),
     apiKey: process.env['TRONGRID_API_KEY']?.trim() || undefined,
     usdtContract: requireEnv('USDT_CONTRACT'),
     treasuryAddress: requireTreasury(),
+    hotWallet: requireHotWallet(),
+    payoutsDryRun: process.env['PAYOUT_BROADCAST'] !== 'true',
     wallet: DepositWallet.fromMnemonic(requireEnv('WALLET_MNEMONIC')),
     policy: {
       maxFeeBps: BigInt(intEnv('SWEEP_MAX_FEE_BPS', Number(DEFAULT_SWEEP_POLICY.maxFeeBps))),

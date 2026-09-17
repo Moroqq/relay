@@ -70,9 +70,13 @@ const ask = (amount, extra = {}) =>
     toAddress: MERCHANT_WALLET,
   });
 
+/** The hot wallet payouts leave from. Any valid address will do for the books. */
+const HOT_WALLET = 'TPNnoowojVHucZZrKii9fox3Zq2MGLdXkp';
+
 const complete = async (payout, feeSun = 0n) => {
   const tx = hash();
-  await recordPayoutSigned(payout.id, tx, { txID: tx });
+  const claimed = await recordPayoutSigned(payout.id, tx, { txID: tx }, HOT_WALLET);
+  assert.equal(claimed, true, 'payout could not be claimed for signing');
   return recordPayoutCompleted(payout.id, feeSun);
 };
 
@@ -208,7 +212,7 @@ test('an approved payout appears in the send queue', async () => {
   assert.ok(queue.some((p) => p.id === payout.id));
 });
 
-test('completing a payout settles the debt and empties the treasury by the net', async () => {
+test('completing a payout settles the debt and empties the hot wallet by the net', async () => {
   await credit('600.00');
   const before = await balance();
   const { payout } = await ask('400.00');
@@ -217,10 +221,11 @@ test('completing a payout settles the debt and empties the treasury by the net',
   await complete(payout);
 
   const entries = await entriesFor(payout.id);
-  // Ordered by account code, so the treasury comes first alphabetically.
+  // Ordered by account code, so the hot wallet comes first alphabetically.
   assert.deepEqual(entries, [
-    // That much left the wallet, since the withdrawal fee here is zero.
-    { code: 'chain.treasury', amount: -usdt('400.00') },
+    // That much left the wallet that signed it — the hot wallet, not the
+    // treasury, whose key is not on the server at all.
+    { code: 'chain.hot_wallet', amount: -usdt('400.00') },
     // And the liability moves toward zero: we owe 400 less.
     { code: 'merchant.payable', amount: usdt('400.00') },
   ]);
@@ -251,7 +256,7 @@ test('a withdrawal fee stays with us rather than leaving', async () => {
   // The merchant's balance drops by the full 200 they asked for...
   assert.equal(byCode['merchant.payable'], usdt('200.00'));
   // ...only 198.50 actually leaves...
-  assert.equal(byCode['chain.treasury'], -usdt('198.50'));
+  assert.equal(byCode['chain.hot_wallet'], -usdt('198.50'));
   // ...and the difference is ours.
   assert.equal(byCode['platform.fee_revenue'], -usdt('1.50'));
   assert.equal(entries.reduce((s, e) => s + e.amount, 0n), 0n);
@@ -274,7 +279,7 @@ test('a payout cannot be completed twice', async () => {
   assert.equal((await entriesFor(payout.id)).length, 2);
 });
 
-test('the network fee is booked against the treasury, in TRX', async () => {
+test('the network fee is booked against the hot wallet, in TRX', async () => {
   await credit('150.00');
   const { payout } = await ask('100.00');
   await approvePayout(payout.id, 'operator');

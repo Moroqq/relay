@@ -26,7 +26,8 @@
     "webhooks:dev": "npm run build && node --env-file-if-exists=.env services/webhooks/dist/index.js",
     "sweeper:dev": "npm run build && node --env-file-if-exists=.env services/sweeper/dist/index.js",
     "contracts:build": "node contracts/compile.mjs",
-    "contracts:test": "node contracts/compile.mjs && node --test \"contracts/*.test.mjs\""
+    "contracts:test": "node contracts/compile.mjs && node --test \"contracts/*.test.mjs\"",
+    "wallet:hot-address": "node scripts/hot-wallet-address.mjs"
   },
   "devDependencies": {
     "@ethereumjs/common": "^10.1.3",

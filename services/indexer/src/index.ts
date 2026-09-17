@@ -115,6 +115,9 @@ async function pass(): Promise<void> {
     const to = Math.min(head.number, from + config.batchSize - 1);
     for (let blockNumber = from; blockNumber <= to && running; blockNumber++) {
       const result = await scanBlock(tron, config, blockNumber, REQUIRED_CONFIRMATIONS);
+      if (result.internalTransfers > 0) {
+        log('hot wallet movement booked', { block: blockNumber, count: result.internalTransfers });
+      }
       for (const depositId of result.newDeposits) {
         log('deposit detected', { deposit: depositId, block: blockNumber });
       }

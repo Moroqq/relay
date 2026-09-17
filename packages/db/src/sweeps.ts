@@ -38,7 +38,7 @@ export async function findSweepCandidates(limit = 50): Promise<SweepCandidate[]>
        FROM payments p
        JOIN deposit_addresses d ON d.address = p.deposit_address
        JOIN projects pr ON pr.id = p.project_id
-       LEFT JOIN sweeps s ON s.payment_id = p.id
+       LEFT JOIN sweeps s ON s.payment_id = p.id AND s.state <> 'failed'
       WHERE p.state IN ('completed', 'overpaid')
         AND p.net_units IS NOT NULL
         AND p.net_units > 0
@@ -105,7 +105,7 @@ export async function planSweep(candidate: SweepCandidate, toAddress: string): P
   const { rows } = await getPool().query(
     `INSERT INTO sweeps (id, payment_id, from_address, to_address, asset, amount_units)
      VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (payment_id) WHERE payment_id IS NOT NULL DO NOTHING
+     ON CONFLICT (payment_id) WHERE payment_id IS NOT NULL AND state <> 'failed' DO NOTHING
      RETURNING ${SWEEP_COLUMNS}`,
     [
       newId('ledgerTransaction').replace('LTX_', 'SWP_'),
@@ -147,11 +147,46 @@ export async function recordBroadcast(sweepId: string): Promise<void> {
   );
 }
 
+/**
+ * Record that an attempt went wrong.
+ *
+ * What happens next depends on how far the sweep got.
+ *
+ * Still `planned` means nothing was signed, so nothing can land: the sweep is
+ * marked failed, which releases the address for the next pass. The first
+ * version only counted the attempt and left the state alone, so a single node
+ * timeout while building left the sweep planned forever — and because a
+ * planned sweep holds the address, that address could never be swept again.
+ *
+ * Already `signed` or `broadcast` means stored bytes may yet land, so the
+ * state is kept. Those are resolved by `expireSweep` once their expiry has
+ * provably passed.
+ */
 export async function recordFailure(sweepId: string, error: string): Promise<void> {
   await getPool().query(
-    `UPDATE sweeps SET attempt = attempt + 1, error = $2 WHERE id = $1`,
+    `UPDATE sweeps
+        SET attempt = attempt + 1,
+            error = $2,
+            state = CASE WHEN state = 'planned' THEN 'failed'::sweep_state_t ELSE state END
+      WHERE id = $1`,
     [sweepId, error.slice(0, 500)],
   );
+}
+
+/**
+ * Give up on a sweep whose transaction can never land.
+ *
+ * The caller must have checked that the stored transaction is past its expiry
+ * and absent from the chain. Marking it failed releases the address, and the
+ * funds are swept afresh on the next pass.
+ */
+export async function expireSweep(sweepId: string, reason: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `UPDATE sweeps SET state = 'failed', error = $2
+      WHERE id = $1 AND state IN ('signed', 'broadcast')`,
+    [sweepId, reason.slice(0, 500)],
+  );
+  return rowCount === 1;
 }
 
 /** Sweeps that are signed but not yet acknowledged by the network. */

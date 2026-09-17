@@ -12,24 +12,24 @@ Nile head and delivered to the merchant with a verifiable signature.
 
 | Piece | State |
 |---|---|
-| Money arithmetic (`@relay/core`) | done, 8 tests |
-| Ids, API keys, webhook signing (`@relay/core`) | done, 22 tests |
-| Payment + webhook state machines (`@relay/core`) | done, 9 tests |
-| Settlement & fee split (`@relay/core`) | done, 12 tests |
-| Deposit address derivation (`@relay/wallet`) | done, 13 tests |
-| Database schema + double-entry ledger | done, 17 integration tests |
-| TRON block indexer (`@relay/indexer`) | done, 15 decoder tests |
-| Merchant API (`@relay/api`) | payments done, 13 tests |
-| Settlement into the ledger | done, 10 integration tests |
-| Webhook delivery worker (`@relay/webhooks`) | done, 17 tests |
-| Sweeping to the merchant (`@relay/sweeper`) | done, 26 tests; broadcast off by default |
-| Energy delegation (stake instead of burn) | next |
-| Account model: users, permanent addresses, deposits | done, 42 tests |
-| Consolidating user addresses into the treasury | done, 11 tests |
-| Merchant balance and payout requests | done, 20 tests |
-| Sending approved payouts on chain | next |
+| Money arithmetic, ids, signing, state machines (`@relay/core`) | done |
+| Deposit and operational key derivation (`@relay/wallet`) | done |
+| Database schema + double-entry ledger | done |
+| TRON block indexer (`@relay/indexer`) | done |
+| Merchant API (`@relay/api`) — payments, users, deposits, balance, payouts | done |
+| Webhook delivery worker (`@relay/webhooks`) | done |
+| Account model: users, permanent addresses, deposits | done |
+| Consolidating user addresses into the treasury (`@relay/sweeper`) | done, broadcast off by default |
+| Merchant balance and payout requests | done |
+| Sending approved payouts from the hot wallet | done, broadcast off by default |
+| Booking refills between treasury and hot wallet | done |
+| Collector contract (`contracts/`) | built and tested, not used — see docs/observed-operator.md |
+| Energy rental | next |
 | Price feed for the sweep decision | next |
-| Console + merchant dashboard | later |
+| End-to-end run with real testnet USDT | next — needs coins from a faucet |
+| Keys out of `.env` into a KMS | before mainnet |
+| Operations console (approving payouts) | later — today only via SQL |
+| Merchant dashboard, landing page | later |
 
 ## Getting started
 
@@ -167,6 +167,59 @@ curl http://127.0.0.1:3000/v1/balance -H "Authorization: Bearer ak_test_..."
 
 Approving a payout is deliberately not in this API. It is our decision, not the
 merchant's, and belongs to the operations console.
+
+
+## Two wallets
+
+| | Treasury | Hot wallet |
+|---|---|---|
+| Receives | every sweep | refills from the treasury |
+| Sends | payouts nowhere — a person moves funds out | merchant payouts |
+| Key | on no server this system runs on | derived on the server, `m/44'/195'/1'/0/0` |
+| Holds | the bulk | a working float |
+
+A stolen server costs the float, not the treasury. The sweeper needs only the
+treasury's address; the indexer needs only the two addresses and holds no key
+at all, which is why `HOT_WALLET_ADDRESS` is configured rather than derived —
+and why the sweeper refuses to start if the configured address and the one its
+mnemonic derives disagree.
+
+The hot wallet sits on its own BIP44 account rather than a reserved index on
+the user account, so no value the deposit-address sequence reaches can ever
+collide with it.
+
+A person refills the hot wallet with their own wallet software. The indexer
+reads that transfer off the chain and books it, treasury to hot wallet, so the
+hot wallet's ledger account does not only ever go down. Money arriving at the
+hot wallet from any other address is recorded but not booked: it might be ours,
+or a stranger's mistake, and guessing wrong puts somebody else's money on our
+books. Fund the hot wallet — TRX included — only from the treasury.
+
+A payout that the hot wallet cannot cover stays approved and waits, logged as
+`hot wallet holds 0 USDT, payout needs 50 — refill from the treasury`. Nothing
+is ever sent partially.
+
+## When a signed transaction is done, dead, or neither
+
+Every TRON transaction expires about a minute after it is built. That expiry is
+what makes a crash between signing and broadcasting recoverable: once it has
+passed and neither node has the transaction, the stored bytes can never land,
+and building afresh is provably safe.
+
+Both sweeps and payouts are reconciled by asking two nodes:
+
+| Solidity node | Ordinary node | Expiry | Verdict |
+|---|---|---|---|
+| has it, succeeded | — | — | book it |
+| has it, reverted | — | — | failed; nothing moved |
+| — | has it | — | wait: landed, not yet irreversible |
+| — | — | not passed | wait: may not have propagated |
+| — | — | passed | rebuild (or give up after 5 attempts) |
+| — | — | unreadable | wait, indefinitely |
+
+Nothing is booked until its block is irreversible, and nothing is rebuilt while
+it could still land. `reconcileVerdict` in `services/sweeper` is a pure
+function with a test per row.
 
 ## Decisions worth knowing
 

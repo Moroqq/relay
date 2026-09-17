@@ -10,18 +10,24 @@
  * line.
  */
 
+import { formatAmount } from '@relay/core';
 import {
   closePool,
+  expireSweep,
+  findSendablePayouts,
   findSweepCandidates,
+  findUnfinishedPayouts,
   findUnfinishedSweeps,
   findUserSweepCandidates,
   recordConfirmed,
   recordUserSweepConfirmed,
 } from '@relay/db';
-import { TronClient } from '@relay/tron';
+import { TronClient, type ChainPrices } from '@relay/tron';
 
 import { loadSweeperConfig } from './config.ts';
 import { describeDecision, sweepPayment, sweepUserAddress } from './sweep.ts';
+import { reconcilePayout, sendPayout } from './payouts.ts';
+import { reconcileVerdict } from './payout-reconcile.ts';
 
 const config = loadSweeperConfig();
 const client = new TronClient({ baseUrl: config.fullNode, apiKey: config.apiKey });
@@ -37,52 +43,91 @@ const log = (message: string, extra: Record<string, unknown> = {}): void => {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Check whether sweeps we already sent have landed, and book them. */
+/**
+ * Check whether sweeps already sent have landed, and book or release them.
+ *
+ * Uses the same verdict as payouts. The first version booked a sweep the
+ * moment the ordinary node reported it — before its block was irreversible —
+ * and left a sweep that reverted on chain in place forever, which kept its
+ * address from ever being swept again.
+ */
 async function reconcile(): Promise<void> {
+  const now = Date.now();
+
   for (const sweep of await findUnfinishedSweeps(config.batchSize)) {
     if (sweep.txHash === null) continue;
 
-    const info = await client.getTransactionInfo(sweep.txHash);
-    // Still pending, or never broadcast in dry-run mode.
-    if (info === null) continue;
+    const [solidified, seen] = await Promise.all([
+      client.getTransactionInfo(sweep.txHash, { solidified: true }),
+      client.getTransactionInfo(sweep.txHash),
+    ]);
+    const verdict = reconcileVerdict({ solidified, seen }, sweep.signedTx, sweep.attempt, now);
 
-    if (info.receipt?.result !== undefined && info.receipt.result !== 'SUCCESS') {
-      log('sweep failed on chain', { sweep: sweep.id, result: info.receipt.result });
+    if (verdict.kind === 'wait') continue;
+
+    if (verdict.kind !== 'complete') {
+      // Reverted, expired, or out of attempts: nothing moved, so the address
+      // is released and the funds are swept afresh on a later pass.
+      const reason = verdict.kind === 'rebuild' ? 'expired without landing' : verdict.reason;
+      await expireSweep(sweep.id, reason);
+      log('sweep released', { sweep: sweep.id, address: sweep.fromAddress, reason });
       continue;
     }
 
-    const feeSun = BigInt(info.fee ?? 0);
     const energyUsed =
-      info.receipt?.energy_usage_total === undefined
+      solidified?.receipt?.energy_usage_total === undefined
         ? null
-        : BigInt(info.receipt.energy_usage_total);
+        : BigInt(solidified.receipt.energy_usage_total);
 
     // A payment sweep discharges what we owed the merchant; a user sweep
     // moves funds between two accounts we control and leaves the debt
     // standing. Booking one as the other would make the ledger lie.
     if (sweep.paymentId !== null) {
-      await recordConfirmed(sweep.id, feeSun, energyUsed);
-      log('sweep confirmed', {
-        sweep: sweep.id,
-        payment: sweep.paymentId,
-        tx: sweep.txHash.slice(0, 16),
-        fee_sun: info.fee ?? 0,
-      });
+      await recordConfirmed(sweep.id, verdict.feeSun, energyUsed);
+      log('sweep confirmed', { sweep: sweep.id, payment: sweep.paymentId, fee_sun: verdict.feeSun });
     } else {
-      const result = await recordUserSweepConfirmed(sweep.id, feeSun, energyUsed);
+      const result = await recordUserSweepConfirmed(sweep.id, verdict.feeSun, energyUsed);
       log('consolidated', {
         sweep: sweep.id,
         address: sweep.fromAddress,
         deposits: result?.depositsSettled ?? 0,
-        tx: sweep.txHash.slice(0, 16),
-        fee_sun: info.fee ?? 0,
+        fee_sun: verdict.feeSun,
       });
     }
   }
 }
 
+/** See signed payouts through to done, and send the approved ones. */
+async function payouts(prices: ChainPrices | null): Promise<void> {
+  const now = Date.now();
+
+  for (const payout of await findUnfinishedPayouts(config.batchSize)) {
+    const outcome = await reconcilePayout(payout, client, now);
+    if (outcome.kind !== 'waiting') {
+      log(`payout ${outcome.kind}`, { payout: payout.id, ...('reason' in outcome ? { reason: outcome.reason } : {}) });
+    }
+  }
+
+  const sendable = await findSendablePayouts(config.batchSize);
+  if (sendable.length === 0) return;
+  const livePrices = prices ?? (await client.getChainPrices());
+
+  for (const payout of sendable) {
+    if (!running) break;
+    const outcome = await sendPayout(payout, client, livePrices, config);
+    log(outcome.kind === 'signed' ? 'payout signed but NOT broadcast (dry run)' : `payout ${outcome.kind}`, {
+      payout: payout.id,
+      to: payout.toAddress,
+      net: formatAmount(payout.netUnits, 'USDT', { trimTrailingZeros: true }),
+      ...('reason' in outcome ? { reason: outcome.reason } : {}),
+      ...('txHash' in outcome ? { tx: outcome.txHash.slice(0, 16) } : {}),
+    });
+  }
+}
+
 async function pass(): Promise<void> {
   await reconcile();
+  await payouts(null);
 
   const payments = await findSweepCandidates(config.batchSize);
   const users = await findUserSweepCandidates(config.batchSize);
@@ -147,6 +192,8 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 log('started', {
   node: config.fullNode,
   treasury: config.treasuryAddress,
+  hot_wallet: config.hotWallet.address,
+  payouts: config.payoutsDryRun ? 'DRY RUN' : 'LIVE — payouts will be sent',
   mode: config.dryRun ? 'DRY RUN — nothing will be broadcast' : 'LIVE — funds will move',
   max_fee_bps: config.policy.maxFeeBps,
   min_units: config.policy.minValueUnits,

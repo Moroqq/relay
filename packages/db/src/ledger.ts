@@ -17,6 +17,11 @@ export const ACCOUNT_CODES = {
   deposits: 'chain.deposits',
   /** The main wallet everything is consolidated into. Still ours, still owed. */
   treasury: 'chain.treasury',
+  /**
+   * The float payouts are sent from. Its key is on the server, so this balance
+   * is the part of our holdings exposed to a server compromise.
+   */
+  hotWallet: 'chain.hot_wallet',
   /** Our cut. */
   feeRevenue: 'platform.fee_revenue',
   /** Network fees we pay to move funds. */
@@ -28,6 +33,7 @@ export const ACCOUNT_CODES = {
 const ACCOUNT_KINDS: Record<string, 'asset' | 'liability' | 'revenue' | 'expense'> = {
   [ACCOUNT_CODES.deposits]: 'asset',
   [ACCOUNT_CODES.treasury]: 'asset',
+  [ACCOUNT_CODES.hotWallet]: 'asset',
   [ACCOUNT_CODES.feeRevenue]: 'revenue',
   [ACCOUNT_CODES.gasExpense]: 'expense',
   [ACCOUNT_CODES.merchantPayable]: 'liability',

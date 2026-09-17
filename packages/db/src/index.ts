@@ -11,3 +11,4 @@ export * from './users.ts';
 export * from './deposits.ts';
 export * from './user-sweeps.ts';
 export * from './payouts.ts';
+export * from './wallets.ts';
