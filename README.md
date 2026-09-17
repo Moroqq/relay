@@ -28,7 +28,7 @@ Nile head and delivered to the merchant with a verifiable signature.
 | TRX price from the WINkLink oracle | done |
 | End-to-end run with real testnet USDT | next — needs coins from a faucet |
 | Keys out of `.env` into a KMS | before mainnet |
-| Operations console: sign-in, audit log, approving payouts (`@relay/console`) | server done; screens next |
+| Operations console: sign-in, payout queue, approve/reject, audit log (`@relay/console`, `apps/console`) | done |
 | Merchant dashboard, landing page | later |
 
 ## Getting started
@@ -267,7 +267,8 @@ default — because it decides where money goes.
 ```bash
 npm run console:new-key                    # CONSOLE_SECRET_KEY, into the environment
 npm run console:create-operator -- --email you@example.com --name "You" --role admin
-npm run console:dev                        # http://127.0.0.1:3100
+npm run console:web:build                  # the pages, into apps/console/dist
+npm run console:dev                        # http://127.0.0.1:3100/admin/
 ```
 
 `create-operator` prints a generated password and a second-factor key once.
@@ -305,6 +306,22 @@ at once get one success and one conflict. A rejection needs a reason.
 
 **The audit log is append-only**, enforced by a trigger like the ledger's. A
 record of who approved a payout is worthless if they can edit it.
+
+**The screens** (`apps/console`, React) are served by the console itself, so
+the cookie, the header and the origin check all apply to one origin. The payout
+queue shows what is waiting, what is owed and whether the hot wallet can cover
+what is already approved; a payout opens into its full details and the trail of
+who did what to it. Approving asks once more, with the whole destination address
+and the network spelled out — testnet or real funds — because a transfer on
+TRON cannot be taken back. The network badge also sits in the corner of every
+page.
+
+The pages run under a strict Content-Security-Policy: their own scripts, styles
+and fonts only (the fonts are bundled, not fetched from a font service), no
+inline code, nowhere to post a form. For work on the screens,
+`npm run console:web:dev` serves them with hot reload and forwards API calls;
+start the console with `CONSOLE_ORIGIN=http://localhost:5173` so it accepts
+changes arriving that way.
 
 ## Decisions worth knowing
 

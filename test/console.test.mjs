@@ -27,7 +27,7 @@ let projectId;
 
 before(async () => {
   app = buildConsoleServer({
-    port: 3100, host: '127.0.0.1', secretKey: SECRET_KEY, secureCookies: false, allowedOrigin: ORIGIN,
+    port: 3100, host: '127.0.0.1', secretKey: SECRET_KEY, secureCookies: false, allowedOrigin: ORIGIN, network: 'nile', webDir: null,
   });
   const merchantId = newId('merchant');
   projectId = newId('project');
@@ -261,4 +261,38 @@ test('the audit log cannot be rewritten, even from the database', async () => {
   const pool = db.getPool();
   await assert.rejects(pool.query(`UPDATE audit_log SET action = 'x' WHERE id = (SELECT max(id) FROM audit_log)`), /append-only/);
   await assert.rejects(pool.query(`DELETE FROM audit_log WHERE id = (SELECT max(id) FROM audit_log)`), /append-only/);
+});
+
+test('the console pages load without a session, under a policy that runs only their own code', async () => {
+  const fs = await import('node:fs/promises');
+  const os = await import('node:os');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relay-console-web-'));
+  await fs.mkdir(path.join(dir, 'assets'));
+  await fs.writeFile(path.join(dir, 'index.html'), '<!doctype html><div id="root"></div>');
+  await fs.writeFile(path.join(dir, 'assets', 'index-abc123.js'), 'export {};');
+  const web = buildConsoleServer({
+    port: 3100, host: '127.0.0.1', secretKey: SECRET_KEY, secureCookies: false, allowedOrigin: ORIGIN, network: 'nile', webDir: dir,
+  });
+  try {
+    const page = await web.inject({ method: 'GET', url: '/admin/' });
+    assert.equal(page.statusCode, 200);
+    assert.match(page.body, /id="root"/);
+    assert.equal(page.headers['cache-control'], 'no-store');
+    const csp = page.headers['content-security-policy'];
+    assert.match(csp, /script-src 'self'/);
+    assert.match(csp, /frame-ancestors 'none'/);
+    assert.doesNotMatch(csp, /unsafe-inline|unsafe-eval/);
+
+    const asset = await web.inject({ method: 'GET', url: '/admin/assets/index-abc123.js' });
+    assert.equal(asset.statusCode, 200);
+    assert.match(asset.headers['cache-control'], /immutable/);
+
+    assert.equal((await web.inject({ method: 'GET', url: '/' })).headers.location, '/admin/');
+    // The API behind the pages is still shut without a session.
+    assert.equal((await web.inject({ method: 'GET', url: '/admin/api/summary' })).statusCode, 401);
+    assert.equal((await web.inject({ method: 'GET', url: '/admin/assets/missing.js' })).headers['cache-control'], 'no-store');
+  } finally {
+    await web.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });

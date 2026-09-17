@@ -5,7 +5,8 @@
   "description": "Relay — TRON payment infrastructure",
   "workspaces": [
     "packages/*",
-    "services/*"
+    "services/*",
+    "apps/*"
   ],
   "engines": {
     "node": ">=22"
@@ -30,7 +31,9 @@
     "wallet:hot-address": "node scripts/hot-wallet-address.mjs",
     "console:dev": "npm run build && node --env-file-if-exists=.env services/console/dist/index.js",
     "console:create-operator": "node scripts/create-operator.mjs",
-    "console:new-key": "node scripts/new-console-key.mjs"
+    "console:new-key": "node scripts/new-console-key.mjs",
+    "console:web:build": "npm run build --workspace @relay/console-web",
+    "console:web:dev": "npm run dev --workspace @relay/console-web"
   },
   "devDependencies": {
     "@ethereumjs/common": "^10.1.3",

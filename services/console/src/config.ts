@@ -2,6 +2,9 @@
  * Console configuration.
  */
 
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { parseSecretboxKey } from '@relay/auth';
 
 export interface ConsoleConfig {
@@ -22,6 +25,17 @@ export interface ConsoleConfig {
   readonly secureCookies: boolean;
   /** The one origin allowed to make state-changing requests. */
   readonly allowedOrigin: string;
+  /**
+   * Which TRON network the platform runs against, shown on every console page.
+   * An operator approving a payout should never have to wonder whether it is
+   * testnet money or real money.
+   */
+  readonly network: string;
+  /**
+   * The built console pages (apps/console/dist). Null serves the API alone,
+   * which is all the tests need.
+   */
+  readonly webDir: string | null;
 }
 
 function intEnv(name: string, fallback: number): number {
@@ -30,6 +44,17 @@ function intEnv(name: string, fallback: number): number {
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(name + ' must be a positive whole number');
   return parsed;
+}
+
+/** CONSOLE_WEB_DIR, or the monorepo build output when it exists. */
+function webDir(): string | null {
+  const configured = process.env['CONSOLE_WEB_DIR']?.trim();
+  if (configured) {
+    if (!existsSync(configured)) throw new Error('CONSOLE_WEB_DIR does not exist: ' + configured);
+    return configured;
+  }
+  const built = fileURLToPath(new URL('../../../apps/console/dist', import.meta.url));
+  return existsSync(built) ? built : null;
 }
 
 export function loadConsoleConfig(): ConsoleConfig {
@@ -50,5 +75,7 @@ export function loadConsoleConfig(): ConsoleConfig {
     secretKey: parseSecretboxKey(process.env['CONSOLE_SECRET_KEY']),
     secureCookies,
     allowedOrigin: process.env['CONSOLE_ORIGIN']?.trim() || 'http://127.0.0.1:' + port,
+    network: process.env['TRON_NETWORK']?.trim() || 'nile',
+    webDir: webDir(),
   });
 }

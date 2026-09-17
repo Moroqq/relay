@@ -2,6 +2,7 @@
  * The operations console's HTTP server.
  */
 
+import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { SESSION_IDLE_SECONDS, SESSION_MAX_AGE_SECONDS, hashSessionToken, newSessionToken } from '@relay/auth';
 import { createSession, resolveSession, revokeSession, type OperatorRecord } from '@relay/db';
@@ -26,19 +27,32 @@ declare module 'fastify' {
 /** The header a state-changing request must carry. See the CSRF hook below. */
 export const CSRF_HEADER = 'x-relay-console';
 
+/**
+ * The console runs only its own code. No inline scripts, nothing from another
+ * origin, nowhere to send a form: an injected string has nothing to run with.
+ */
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'none'", "script-src 'self'", "style-src 'self'", "font-src 'self'", "img-src 'self'",
+  "connect-src 'self'", "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'",
+].join('; ');
+
 const clientIp = (request: FastifyRequest): string => request.ip;
 
 export function buildConsoleServer(config: ConsoleConfig, options: { logger?: boolean } = {}): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false, bodyLimit: 16 * 1024 });
 
-  app.addHook('onSend', async (_request, reply) => {
+  app.addHook('onSend', async (request, reply) => {
     // Refuse to be framed. Otherwise a hostile page can lay the console,
     // invisible, under its own button and have an operator click Approve.
     reply.header('X-Frame-Options', 'DENY');
-    reply.header('Content-Security-Policy', "frame-ancestors 'none'");
+    reply.header('Content-Security-Policy', CONTENT_SECURITY_POLICY);
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'no-referrer');
-    reply.header('Cache-Control', 'no-store');
+    // Built assets carry a content hash in their names, so they can be kept
+    // forever; everything else, the page and every API answer, never.
+    reply.header('Cache-Control', request.url.startsWith('/admin/assets/') && reply.statusCode === 200
+      ? 'public, max-age=31536000, immutable'
+      : 'no-store');
   });
 
   /**
@@ -115,10 +129,17 @@ export function buildConsoleServer(config: ConsoleConfig, options: { logger?: bo
       return { ok: true };
     });
 
-    scope.get('/admin/api/me', async (request) => ({ operator: operatorView(request.operator) }));
+    scope.get('/admin/api/me', async (request) => ({ operator: operatorView(request.operator), network: config.network }));
 
     registerConsoleRoutes(scope);
   });
+
+  if (config.webDir) {
+    // The pages themselves are public: the sign-in screen has to load before
+    // anyone is signed in. Everything they show comes from the API above.
+    app.register(fastifyStatic, { root: config.webDir, prefix: '/admin/', redirect: true, cacheControl: false, etag: true });
+    app.get('/', async (_request, reply) => reply.redirect('/admin/'));
+  }
 
   return app;
 }
