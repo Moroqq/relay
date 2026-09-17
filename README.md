@@ -24,11 +24,11 @@ Nile head and delivered to the merchant with a verifiable signature.
 | Sending approved payouts from the hot wallet | done, broadcast off by default |
 | Booking refills between treasury and hot wallet | done |
 | Collector contract (`contracts/`) | built and tested, not used — see docs/observed-operator.md |
-| Energy rental | next |
+| Energy rental | deferred — fees are burned in TRX for now |
 | TRX price from the WINkLink oracle | done |
 | End-to-end run with real testnet USDT | next — needs coins from a faucet |
 | Keys out of `.env` into a KMS | before mainnet |
-| Operations console (approving payouts) | later — today only via SQL |
+| Operations console: sign-in, audit log, approving payouts (`@relay/console`) | server done; screens next |
 | Merchant dashboard, landing page | later |
 
 ## Getting started
@@ -257,6 +257,54 @@ rate-limited request with HTTP 200 and `{"Error": "request rate exceeded…
 suspended for 5 s"}`. The client used to return that as a result, so a
 throttled balance read looked like an address holding nothing. It now raises a
 retriable error and waits out the suspension the node names.
+
+
+## The operations console
+
+A separate service from the merchant API — its own port, loopback only by
+default — because it decides where money goes.
+
+```bash
+npm run console:new-key                    # CONSOLE_SECRET_KEY, into the environment
+npm run console:create-operator -- --email you@example.com --name "You" --role admin
+npm run console:dev                        # http://127.0.0.1:3100
+```
+
+`create-operator` prints a generated password and a second-factor key once.
+Run it in your own terminal and put both straight into a password manager and
+an authenticator app.
+
+**Signing in takes a password and a six-digit code** (RFC 6238, checked against
+the vectors printed in the RFC). A code works once: its counter is stored and
+anything at or before it is refused, so a code read over a shoulder cannot be
+replayed within its window. Two sign-ins racing with one code cannot both win —
+the counter update is conditional.
+
+**Every wrong answer looks the same.** Unknown address, wrong password, wrong
+code, locked, disabled: one message, and roughly one scrypt derivation of work
+each, so neither the response nor its timing says which part was right. Five
+failures lock an account for fifteen minutes, and a locked account is refused
+before its password is checked.
+
+**What is stored cannot be used.** Passwords as scrypt hashes; second-factor
+secrets sealed with AES-256-GCM under `CONSOLE_SECRET_KEY`, which lives only in
+the environment; session tokens as SHA-256. A database dump alone yields no
+password, no code and no session.
+
+**Sessions** are HttpOnly, SameSite=Strict cookies, eight hours at most and
+thirty minutes idle. Disabling an operator ends their open sessions at once.
+
+**Forged requests are closed three ways**: the SameSite cookie, a required
+`x-relay-console` header another origin cannot set without a preflight this
+server never answers, and an Origin check. The console also refuses to be
+framed, so a hostile page cannot lay it under its own button.
+
+**Roles**: admins and operators can approve and reject; viewers can only look.
+Approving succeeds only from `requested`, so two operators deciding one payout
+at once get one success and one conflict. A rejection needs a reason.
+
+**The audit log is append-only**, enforced by a trigger like the ledger's. A
+record of who approved a payout is worthless if they can edit it.
 
 ## Decisions worth knowing
 

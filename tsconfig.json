@@ -5,6 +5,9 @@
       "path": "./packages/core"
     },
     {
+      "path": "./packages/auth"
+    },
+    {
       "path": "./packages/wallet"
     },
     {
@@ -24,6 +27,9 @@
     },
     {
       "path": "./services/sweeper"
+    },
+    {
+      "path": "./services/console"
     }
   ]
 }

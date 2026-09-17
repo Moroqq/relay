@@ -12,3 +12,5 @@ export * from './deposits.ts';
 export * from './user-sweeps.ts';
 export * from './payouts.ts';
 export * from './wallets.ts';
+export * from './operators.ts';
+export * from './console-queries.ts';

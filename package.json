@@ -27,7 +27,10 @@
     "sweeper:dev": "npm run build && node --env-file-if-exists=.env services/sweeper/dist/index.js",
     "contracts:build": "node contracts/compile.mjs",
     "contracts:test": "node contracts/compile.mjs && node --test \"contracts/*.test.mjs\"",
-    "wallet:hot-address": "node scripts/hot-wallet-address.mjs"
+    "wallet:hot-address": "node scripts/hot-wallet-address.mjs",
+    "console:dev": "npm run build && node --env-file-if-exists=.env services/console/dist/index.js",
+    "console:create-operator": "node scripts/create-operator.mjs",
+    "console:new-key": "node scripts/new-console-key.mjs"
   },
   "devDependencies": {
     "@ethereumjs/common": "^10.1.3",
