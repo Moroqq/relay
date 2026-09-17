@@ -22,7 +22,8 @@ import {
   recordConfirmed,
   recordUserSweepConfirmed,
 } from '@relay/db';
-import { TronClient, type ChainPrices } from '@relay/tron';
+import { TronClient, USDT_TRX_DESCRIPTION, priceFromRound, type ChainPrices } from '@relay/tron';
+import { decodeAddress } from '@relay/wallet';
 
 import { loadSweeperConfig } from './config.ts';
 import { describeDecision, sweepPayment, sweepUserAddress } from './sweep.ts';
@@ -125,6 +126,34 @@ async function payouts(prices: ChainPrices | null): Promise<void> {
   }
 }
 
+
+const priceFeedHex = Buffer.from(decodeAddress(config.priceFeed)).toString('hex');
+
+/**
+ * The oracle's TRX price for this pass, or the reason there is none.
+ *
+ * No price means no sweeps this pass, and nothing else. The price only decides
+ * whether a sweep is worth its fee, so waiting for a trustworthy one loses
+ * time and never money. Payouts do not use it and are not held up.
+ */
+async function readTrxPrice(): Promise<{ ok: true; units: bigint } | { ok: false; reason: string }> {
+  try {
+    const feed = await client.readPriceFeed(priceFeedHex);
+    // Checked every pass, not only at startup: a proxy can be repointed.
+    if (feed.description !== USDT_TRX_DESCRIPTION) {
+      return { ok: false, reason: 'price feed describes itself as "' + feed.description + '", expected "' + USDT_TRX_DESCRIPTION + '"' };
+    }
+    const verdict = priceFromRound(feed.round, {
+      nowSeconds: Math.floor(Date.now() / 1000),
+      decimals: feed.decimals,
+      maxAgeSeconds: config.maxPriceAgeSeconds,
+    });
+    return verdict.ok ? { ok: true, units: verdict.trxPriceUnits } : { ok: false, reason: verdict.reason };
+  } catch (error) {
+    return { ok: false, reason: 'price feed unreadable: ' + (error as Error).message };
+  }
+}
+
 async function pass(): Promise<void> {
   await reconcile();
   await payouts(null);
@@ -133,15 +162,21 @@ async function pass(): Promise<void> {
   const users = await findUserSweepCandidates(config.batchSize);
   if (payments.length === 0 && users.length === 0) return;
 
-  // Prices are read once per pass rather than per sweep: they are governance
-  // parameters that change by vote, not by the minute.
+  const price = await readTrxPrice();
+  if (!price.ok) {
+    log('sweeps waiting for a usable TRX price', { reason: price.reason, addresses: payments.length + users.length });
+    return;
+  }
+
+  // Resource prices are read once per pass rather than per sweep: they are
+  // governance parameters that change by vote, not by the minute.
   const prices = await client.getChainPrices();
 
   const work = [
-    ...payments.map((c) => ({ label: c.paymentId, run: () => sweepPayment(c, client, prices, config) })),
+    ...payments.map((c) => ({ label: c.paymentId, run: () => sweepPayment(c, client, prices, price.units, config) })),
     ...users.map((c) => ({
       label: `${c.endUserId} (${c.depositCount} deposits)`,
-      run: () => sweepUserAddress(c, client, prices, config),
+      run: () => sweepUserAddress(c, client, prices, price.units, config),
     })),
   ];
 
@@ -189,7 +224,17 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   });
 }
 
+const initialPrice = await readTrxPrice();
+if (!initialPrice.ok && /describes itself|unreadable/.test(initialPrice.reason)) {
+  // A feed that is the wrong contract is a configuration error, not a transient
+  // one. Stale is different: sweeps wait, the service runs.
+  log('refusing to start', { reason: initialPrice.reason, feed: config.priceFeed });
+  process.exit(1);
+}
+
 log('started', {
+  price_feed: config.priceFeed,
+  trx_price: initialPrice.ok ? (Number(initialPrice.units) / 1e6).toFixed(6) + ' USDT' : 'unusable: ' + initialPrice.reason,
   node: config.fullNode,
   treasury: config.treasuryAddress,
   hot_wallet: config.hotWallet.address,

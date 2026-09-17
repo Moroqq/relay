@@ -43,6 +43,7 @@ export async function sweepPayment(
   candidate: SweepCandidate,
   client: TronClient,
   prices: ChainPrices,
+  trxPriceUnits: bigint,
   config: SweeperConfig,
 ): Promise<SweepOutcome> {
   // Non-custodial means the money goes to the merchant, so there must be a
@@ -99,7 +100,7 @@ export async function sweepPayment(
   const decision = decideSweep(
     candidate.netUnits,
     cost.totalSun,
-    config.trxPriceUnits,
+    trxPriceUnits,
     config.policy,
   );
 
@@ -177,6 +178,7 @@ export async function sweepUserAddress(
   candidate: UserSweepCandidate,
   client: TronClient,
   prices: ChainPrices,
+  trxPriceUnits: bigint,
   config: SweeperConfig,
 ): Promise<SweepOutcome> {
   if (candidate.asset !== 'USDT') {
@@ -216,7 +218,7 @@ export async function sweepUserAddress(
     prices,
   );
 
-  const decision = decideSweep(onChain, cost.totalSun, config.trxPriceUnits, config.policy);
+  const decision = decideSweep(onChain, cost.totalSun, trxPriceUnits, config.policy);
   if (!decision.worthwhile) return { kind: 'uneconomic', decision };
 
 

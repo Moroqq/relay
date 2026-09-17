@@ -13,14 +13,42 @@
 
 import type { RawTransaction, RawTransactionInfo } from './types.ts';
 import { interpretEstimate, decodeHexMessage, type EstimateResult, type RawEstimate } from './estimate.ts';
+import { decodeRoundData, decodeString, decodeUint, type RoundData } from './oracle.ts';
 
 export class TronError extends Error {
   override readonly name = 'TronError';
   readonly retriable: boolean;
-  constructor(message: string, retriable: boolean) {
+  /** Set when the node said how long to back off for. */
+  readonly retryAfterMs: number | undefined;
+  constructor(message: string, retriable: boolean, retryAfterMs?: number) {
     super(message);
     this.retriable = retriable;
+    this.retryAfterMs = retryAfterMs;
   }
+}
+
+/**
+ * Recognise a failure a node reported inside a successful HTTP response.
+ *
+ * TronGrid answers a rate-limited request with HTTP 200 and a body of
+ * `{"Error": "request rate exceeded the allowed_rps(3), and the query server is
+ * suspended for 5 s"}`. That is valid JSON, and the first version of this
+ * client returned it as the result. A caller reading a token balance then saw
+ * no `constant_result` and concluded the address held nothing — so being
+ * throttled looked exactly like being empty. Found by probing the price oracle,
+ * when a healthy contract appeared to return nothing.
+ */
+export function errorInBody(parsed: unknown): TronError | null {
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  const message = (parsed as { Error?: unknown }).Error;
+  if (typeof message !== 'string') return null;
+
+  const throttled = /rate exceeded|suspended/i.test(message);
+  if (!throttled) return new TronError(`node error: ${message.slice(0, 200)}`, false);
+
+  // Honour the suspension the node names, plus a little, rather than guessing.
+  const seconds = Number(/suspended for (\d+)\s*s/i.exec(message)?.[1] ?? 5);
+  return new TronError(`rate limited: ${message.slice(0, 120)}`, true, (seconds + 0.5) * 1000);
 }
 
 export interface TronClientOptions {
@@ -84,19 +112,26 @@ export class TronClient {
         }
 
         const text = await response.text();
+        let parsed: unknown;
         try {
-          return JSON.parse(text) as T;
+          parsed = JSON.parse(text);
         } catch {
           // A proxy error page rather than JSON. Worth retrying.
           throw new TronError(`${path} returned non-JSON: ${text.slice(0, 120)}`, true);
         }
+        const bodyError = errorInBody(parsed);
+        if (bodyError !== null) throw bodyError;
+        return parsed as T;
       } catch (error) {
         lastError = error;
         const retriable = error instanceof TronError ? error.retriable : true;
         if (!retriable || attempt === this.#maxAttempts) break;
-        // 0.5s, 1s, 2s — long enough to clear a rate limit, short enough that
-        // the indexer does not fall far behind the head.
-        await sleep(500 * 2 ** (attempt - 1));
+        // When the node names a suspension, wait it out. Otherwise 0.5s, 1s,
+        // 2s for transient failures. The fixed backoff alone totals 3.5s, which
+        // does not outlast TronGrid's five-second suspension — the first
+        // version's comment claimed otherwise.
+        const named = error instanceof TronError ? error.retryAfterMs : undefined;
+        await sleep(named ?? 500 * 2 ** (attempt - 1));
       } finally {
         clearTimeout(timer);
       }
@@ -226,6 +261,34 @@ export class TronClient {
   }
 
 
+  /**
+   * Read a WINkLink price feed: what it calls itself, its precision, and its
+   * latest round.
+   *
+   * Made one call at a time rather than in parallel. Three simultaneous
+   * requests are enough to trip a public node's per-second limit, and the
+   * description is worth nothing if the round that follows it was throttled.
+   */
+  async readPriceFeed(proxyHex: string): Promise<{ description: string; decimals: number; round: RoundData }> {
+    const read = async (selector: string): Promise<string> => {
+      const raw = await this.#post<{ constant_result?: string[]; result?: { result?: boolean; message?: string } }>(
+        '/wallet/triggerconstantcontract',
+        { owner_address: proxyHex, contract_address: proxyHex, function_selector: selector, parameter: '', call_value: 0 },
+      );
+      const value = raw.constant_result?.[0];
+      if (raw.result?.result !== true || value === undefined || value === '') {
+        const why = raw.result?.message === undefined ? 'no return value' : decodeHexMessage(raw.result.message);
+        throw new TronError(`price feed ${selector} failed: ${why}`, false);
+      }
+      return value;
+    };
+
+    const description = decodeString(await read('description()'));
+    const decimals = Number(decodeUint(await read('decimals()')));
+    const round = decodeRoundData(await read('latestRoundData()'));
+    return { description, decimals, round };
+  }
+
   /** TRC20 balance of an address, straight from the contract. */
   async readTokenBalance(contractHex: string, ownerHex: string): Promise<bigint> {
     const raw = await this.#post<{ constant_result?: string[]; result?: { result?: boolean } }>(
@@ -298,13 +361,31 @@ export class TronClient {
   }
 
   async #get<T>(path: string): Promise<T> {
-    const response = await fetch(`${this.#baseUrl}${path}`, {
-      headers: this.#apiKey === undefined ? {} : { 'TRON-PRO-API-KEY': this.#apiKey },
-      signal: AbortSignal.timeout(this.#timeoutMs),
-    });
-    if (!response.ok) throw new TronError(`${path} returned HTTP ${response.status}`, true);
-    return (await response.json()) as T;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= this.#maxAttempts; attempt++) {
+      try {
+        const response = await fetch(`${this.#baseUrl}${path}`, {
+          headers: this.#apiKey === undefined ? {} : { 'TRON-PRO-API-KEY': this.#apiKey },
+          signal: AbortSignal.timeout(this.#timeoutMs),
+        });
+        if (!response.ok) {
+          throw new TronError(`${path} returned HTTP ${response.status}`, response.status === 429 || response.status >= 500);
+        }
+        const parsed: unknown = await response.json();
+        const bodyError = errorInBody(parsed);
+        if (bodyError !== null) throw bodyError;
+        return parsed as T;
+      } catch (error) {
+        lastError = error;
+        const retriable = error instanceof TronError ? error.retriable : true;
+        if (!retriable || attempt === this.#maxAttempts) break;
+        const named = error instanceof TronError ? error.retryAfterMs : undefined;
+        await sleep(named ?? 500 * 2 ** (attempt - 1));
+      }
+    }
+    throw lastError instanceof Error ? lastError : new TronError(`${path} failed: ${String(lastError)}`, false);
   }
+
 }
 
 function parseHeader(raw: RawBlock): BlockHeader {

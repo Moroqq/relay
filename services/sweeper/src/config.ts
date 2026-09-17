@@ -3,6 +3,7 @@
  */
 
 import { DEFAULT_SWEEP_POLICY, type SweepPolicy } from '@relay/core';
+import { DEFAULT_MAX_PRICE_AGE_SECONDS, USDT_TRX_FEEDS } from '@relay/tron';
 import { DepositWallet, deriveHotWallet, isValidAddress, type OperationalKey } from '@relay/wallet';
 
 export interface SweeperConfig {
@@ -31,15 +32,16 @@ export interface SweeperConfig {
   readonly wallet: DepositWallet;
   readonly policy: SweepPolicy;
   /**
-   * Value of one TRX in the swept asset's base units — 300000 means one TRX is
-   * worth 0.30 USDT.
+   * The WINkLink USDT/TRX price feed, as its proxy address.
    *
-   * A configured number, not a fetched one, and that is a known gap: a stale
-   * rate makes the sweeper either burn money on dust or strand funds it should
-   * have moved. A real deployment wants a price feed here, refreshed often
-   * enough that the sweep decision is made against today's market.
+   * Replaces a TRX price typed into configuration. A typed price is right on
+   * the day it is typed and wrong every day after; the sweep decision it feeds
+   * either burns money on dust or leaves funds that were worth moving.
+   * Defaults to the official feed for TRON_NETWORK.
    */
-  readonly trxPriceUnits: bigint;
+  readonly priceFeed: string;
+  /** How old an oracle price may be before sweeps wait for a fresh one. */
+  readonly maxPriceAgeSeconds: number;
   /**
    * Ceiling on what the network may charge for one sweep, in sun. A
    * transaction that would exceed it fails rather than draining the address.
@@ -89,6 +91,25 @@ function requireTreasury(): string {
  * two is wrong, and refusing to start is the only safe answer. Carrying on
  * would sign payouts from one wallet while the books watch another.
  */
+/**
+ * The oracle to read. An explicit ORACLE_USDT_TRX wins; otherwise the official
+ * feed for the configured network. An unknown network with no explicit feed is
+ * refused rather than guessed at — Nile's feed on mainnet would be a real
+ * contract returning a testnet price.
+ */
+function requirePriceFeed(): string {
+  const explicit = process.env['ORACLE_USDT_TRX']?.trim();
+  if (explicit !== undefined && explicit !== '') {
+    if (!isValidAddress(explicit)) throw new Error('ORACLE_USDT_TRX is not a valid TRON address: ' + explicit);
+    return explicit;
+  }
+  const network = process.env['TRON_NETWORK']?.trim() ?? 'nile';
+  if (network !== 'nile' && network !== 'mainnet') {
+    throw new Error('No known USDT/TRX price feed for TRON_NETWORK=' + network + '; set ORACLE_USDT_TRX.');
+  }
+  return USDT_TRX_FEEDS[network];
+}
+
 function requireHotWallet(): OperationalKey {
   const hot = deriveHotWallet(requireEnv('WALLET_MNEMONIC'));
   const configured = process.env['HOT_WALLET_ADDRESS']?.trim();
@@ -121,7 +142,8 @@ export function loadSweeperConfig(): SweeperConfig {
       maxFeeBps: BigInt(intEnv('SWEEP_MAX_FEE_BPS', Number(DEFAULT_SWEEP_POLICY.maxFeeBps))),
       minValueUnits: BigInt(intEnv('SWEEP_MIN_UNITS', Number(DEFAULT_SWEEP_POLICY.minValueUnits))),
     } satisfies SweepPolicy,
-    trxPriceUnits: BigInt(intEnv('TRX_PRICE_UNITS', 300_000)),
+    priceFeed: requirePriceFeed(),
+    maxPriceAgeSeconds: intEnv('ORACLE_MAX_AGE_HOURS', DEFAULT_MAX_PRICE_AGE_SECONDS / 3600) * 3600,
     feeLimitSun: intEnv('SWEEP_FEE_LIMIT_SUN', 40_000_000), // 40 TRX
     pollIntervalMs: intEnv('SWEEP_POLL_MS', 30_000),
     batchSize: intEnv('SWEEP_BATCH_SIZE', 10),

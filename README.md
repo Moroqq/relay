@@ -25,7 +25,7 @@ Nile head and delivered to the merchant with a verifiable signature.
 | Booking refills between treasury and hot wallet | done |
 | Collector contract (`contracts/`) | built and tested, not used — see docs/observed-operator.md |
 | Energy rental | next |
-| Price feed for the sweep decision | next |
+| TRX price from the WINkLink oracle | done |
 | End-to-end run with real testnet USDT | next — needs coins from a faucet |
 | Keys out of `.env` into a KMS | before mainnet |
 | Operations console (approving payouts) | later — today only via SQL |
@@ -220,6 +220,43 @@ Both sweeps and payouts are reconciled by asking two nodes:
 Nothing is booked until its block is irreversible, and nothing is rebuilt while
 it could still land. `reconcileVerdict` in `services/sweeper` is a pure
 function with a test per row.
+
+
+## Where the TRX price comes from
+
+From WINkLink, TRON's own price oracle, reading the **USDT/TRX** feed — how many
+TRX one USDT buys — and inverting it. One read, meaning the same thing on both
+networks, rather than dividing TRX/USD by USDT/USD.
+
+| Network | Proxy address |
+|---|---|
+| mainnet | `TUfV7S4RYtdmBvtHzedfFPVsK9nvndtETp` |
+| nile | `TVZjuqiJNNuLQAQoPAFfUqvYUxhZYkUX5Z` |
+
+Taken from the official table at doc.winklink.org, then each checked on chain:
+an `EACAggregatorProxy` whose `description()` reads back `USDT/TRX`.
+
+The price is used for exactly one thing — deciding whether a sweep is worth its
+network fee — so every way of not trusting it fails toward waiting:
+
+- **The feed must call itself `USDT/TRX`**, checked every pass. Pointing at
+  the TRX/USD feed by mistake yields a figure nine times too high that still
+  looks like a price; only this check catches it. At startup a wrong feed stops
+  the service.
+- **A day-old price is normal.** WINkLink updates this pair on a 1% move and
+  otherwise every 24 hours. The age limit defaults to 26 hours; WINkLink's own
+  guidance is that it must exceed the heartbeat. A shorter limit would refuse
+  the oracle every time the market is calm.
+- **Zero, negative, never-updated, carried-over, future-dated, or orders of
+  magnitude out** — all refused.
+- **Refused means sweeps wait.** Nothing is lost: funds stay on their addresses
+  until a usable price arrives. Payouts do not use the price and carry on.
+
+**Being throttled is not the same as being empty.** TronGrid answers a
+rate-limited request with HTTP 200 and `{"Error": "request rate exceeded…
+suspended for 5 s"}`. The client used to return that as a result, so a
+throttled balance read looked like an address holding nothing. It now raises a
+retriable error and waits out the suspension the node names.
 
 ## Decisions worth knowing
 
