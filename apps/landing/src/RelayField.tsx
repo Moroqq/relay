@@ -7,7 +7,13 @@ const BASE_WIDTH = 1024;
 /** Centre of the Relay mark, px from the top of the field. */
 const CENTRE_Y = 402;
 /** Coins within this many px of the cursor (at full size) are pushed away. */
-const CURSOR_RADIUS = 300;
+const CURSOR_RADIUS = 190;
+/** Furthest a coin is pushed, px at full size. Small: the coins make way, they do not scatter. */
+const MAX_PUSH = 20;
+/** A flick faster than this (px per event) nudges the coins it passes through. */
+const FLICK_SPEED = 28;
+const FLICK_RADIUS = 80;
+const FLICK_FORCE = 0.05;
 /** The mark's image, at full size. The letter itself is about 187px wide. */
 const MARK_W = 308;
 const MARK_H = 205;
@@ -84,12 +90,12 @@ export function RelayField() {
       if (inside && pointer.inside && !still) {
         const vx = x - pointer.x;
         const vy = y - pointer.y;
-        if (Math.hypot(vx, vy) > 14) {
+        if (Math.hypot(vx, vy) > FLICK_SPEED) {
           sim.forEach((s, i) => {
             const h = home(i, r.width);
             const d = Math.hypot(x - (h.x + s.x), y - (h.y + s.y));
-            if (d < 130 * scale) {
-              const k = (1 - d / (130 * scale)) * 0.16 / s.mass;
+            if (d < FLICK_RADIUS * scale) {
+              const k = (1 - d / (FLICK_RADIUS * scale)) * FLICK_FORCE / s.mass;
               s.vx += vx * k;
               s.vy += vy * k;
             }
@@ -126,7 +132,7 @@ export function RelayField() {
         const node = coins.current[i];
         if (!node) return;
         const h = home(i, r.width);
-        const lean = [0, 2, 5, 10, 14][c.depth]!;
+        const lean = [0, 1, 2, 4, 6][c.depth]!;
         let tx = still ? 0 : (Math.sin(t * s.f1 + s.p1) * s.a1 + px * lean) * scale + Math.sign(c.dx) * prog * 90 * scale;
         let ty = still ? 0 : (Math.cos(t * s.f2 + s.p2) * s.a2 + py * lean * 0.7) * scale + Math.sign(c.dy) * prog * 70 * scale;
         if (pointer.inside && !still) {
@@ -135,8 +141,8 @@ export function RelayField() {
           const d = Math.hypot(dx, dy);
           if (d < radius && d > 0.1) {
             const n = 1 - d / radius;
-            const ramp = d < 70 * scale ? 0.92 : n * n * 1.25;
-            const push = Math.min(48, 48 * Math.min(1, ramp)) * scale / s.mass;
+            const ramp = d < 50 * scale ? 0.92 : n * n * 1.25;
+            const push = MAX_PUSH * Math.min(1, ramp) * scale / s.mass;
             // Away from the cursor: the target moves opposite to it.
             tx -= dx / d * push;
             ty -= dy / d * push;
