@@ -93,30 +93,36 @@ export const SNIPPET = `{
   "expires_at": "2026-09-01T20:56:12Z"
 }`;
 
-/** The coins in the hero field. Positions in % of the field, size in px; depth 3 is nearest. */
+/**
+ * The coins in the hero field, laid out after the reference render of the
+ * first screen. Positions are px from the centre of the Relay mark at full
+ * scale; the field scales the whole composition around that centre. Depth 4
+ * floats in front of the mark, out of focus; depth 1 sits far back.
+ */
 export interface CoinSpec {
   id: number;
   sprite: number;
   asset: 'USDT' | 'TRX';
-  x: number;
-  y: number;
+  dx: number;
+  dy: number;
   size: number;
-  depth: 1 | 2 | 3;
+  depth: 1 | 2 | 3 | 4;
   blur: number;
   glow: number;
-  rot: number;
-  sx: number;
 }
 
 export const COINS: CoinSpec[] = [
-  { sprite: 0, asset: 'USDT', x: 14, y: 64, size: 132, depth: 3, blur: 0, glow: 0.3, rot: -6, sx: 1 },
-  { sprite: 2, asset: 'TRX', x: 64, y: 28, size: 90, depth: 2, blur: 0.2, glow: 0.24, rot: 9, sx: 0.96 },
-  { sprite: 1, asset: 'USDT', x: 10, y: 30, size: 84, depth: 2, blur: 0.2, glow: 0.22, rot: -11, sx: 1 },
-  { sprite: 3, asset: 'TRX', x: 76, y: 46, size: 78, depth: 2, blur: 0.4, glow: 0.2, rot: 5, sx: 0.92 },
-  { sprite: 13, asset: 'USDT', x: 58, y: 63, size: 52, depth: 1, blur: 0.6, glow: 0.16, rot: -14, sx: 1 },
-  { sprite: 7, asset: 'TRX', x: 6, y: 46, size: 50, depth: 1, blur: 0.6, glow: 0.16, rot: 15, sx: 0.9 },
-  { sprite: 12, asset: 'TRX', x: 88, y: 36, size: 42, depth: 1, blur: 0.8, glow: 0.13, rot: -8, sx: 0.94 },
-  { sprite: 11, asset: 'USDT', x: 20, y: 14, size: 40, depth: 1, blur: 0.8, glow: 0.13, rot: 12, sx: 1 },
+  { sprite: 1, asset: 'USDT', dx: 17, dy: -215, size: 175, depth: 3, blur: 0, glow: 0.34 },
+  { sprite: 0, asset: 'USDT', dx: -159, dy: 296, size: 200, depth: 4, blur: 7, glow: 0.2 },
+  { sprite: 3, asset: 'TRX', dx: -192, dy: 94, size: 112, depth: 2, blur: 0.2, glow: 0.26 },
+  { sprite: 7, asset: 'TRX', dx: 369, dy: -194, size: 98, depth: 2, blur: 0, glow: 0.26 },
+  { sprite: 8, asset: 'TRX', dx: 345, dy: 122, size: 90, depth: 2, blur: 0.2, glow: 0.24 },
+  { sprite: 4, asset: 'USDT', dx: 178, dy: 240, size: 70, depth: 2, blur: 0.6, glow: 0.2 },
+  { sprite: 10, asset: 'USDT', dx: 254, dy: -75, size: 68, depth: 2, blur: 0.3, glow: 0.2 },
+  { sprite: 9, asset: 'TRX', dx: -396, dy: -191, size: 58, depth: 1, blur: 0.5, glow: 0.18 },
+  { sprite: 11, asset: 'USDT', dx: -216, dy: -138, size: 52, depth: 1, blur: 0.6, glow: 0.16 },
+  { sprite: 13, asset: 'USDT', dx: -452, dy: -43, size: 50, depth: 1, blur: 1.2, glow: 0.15 },
+  { sprite: 14, asset: 'TRX', dx: -398, dy: 100, size: 42, depth: 1, blur: 1.4, glow: 0.14 },
 ].map((c, id) => ({ ...c, id }) as CoinSpec);
 
 export const COIN_LABELS = {

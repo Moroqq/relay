@@ -335,19 +335,25 @@ npm run landing:dev      # http://127.0.0.1:5174
 npm run landing:build    # into apps/landing/dist
 ```
 
-Behind the header and hero is a field of monospace characters drawn by one
-WebGL2 fragment shader. Faint clouds drift across it; around the cursor the
-characters light up in USDT teal and some turn into hash digits that re-roll.
-It dims behind the headline and the figures so they stay readable, and it is
-skipped entirely on touch screens, while the hero is off screen, and without
-WebGL2. With reduced motion the clouds stand still. The coins are pushed
-aside by the cursor and spring back; click one to label it.
+The first screen follows the reference render: the flat Relay mark with a
+soft glow inside two orbits, eleven USDT and TRX coins around it at different
+depths — one large and out of focus in front. The whole composition scales
+with the width of its column, so it never crowds the text. The cursor pushes
+coins aside and they spring back; click one to label it.
+
+Below the first screen is a grid of faint dots, drawn by one WebGL2 fragment
+shader on a canvas fixed behind the lower sections. Around the cursor the dots
+turn into characters in even rings, densest at the centre (`\` and `#`),
+thinning out through `?`, `O`, `o`, `+`, `I`. Which character a cell shows
+depends only on its distance from the cursor, so nothing flickers. It dims
+behind headings and figures, and is skipped on touch screens and without
+WebGL2. The first screen sits above it on the page colour and never shows it.
 
 Before the site is public, replace what `src/content.ts` marks DEMO: the
 partner names, the calculator's rates (0.5% + 1.10 is the design file's
 placeholder, not Relay's pricing), the live activity feed and the
-infrastructure statuses. The images are the handoff's, re-encoded as WebP at
-the same size (2.9 MB down to 0.4 MB).
+infrastructure statuses. The images are the handoff's coin sprites and mark, re-encoded as WebP
+(about 0.15 MB in all).
 
 ## Decisions worth knowing
 

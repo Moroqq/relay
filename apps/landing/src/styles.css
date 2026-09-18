@@ -59,17 +59,21 @@ img { display: block; }
 .btn:hover { background: #e8eaee; color: #0a0b0c; }
 .btn-sm { height: 42px; padding: 0 20px; font-size: 14px; }
 
-/* ---- top: header + hero share the symbol field behind them ---- */
-.top { position: relative; }
-.ascii-layer { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
-.ascii-layer canvas { display: block; width: 100%; height: 100%; }
+/* ---- the character field lives behind the lower sections only ----
+   It is fixed to the viewport; the header and hero sit above it on the page
+   colour, so the first screen stays clear of it. */
+.top { position: relative; z-index: 2; background: var(--bg); }
+main, .footer { position: relative; z-index: 1; }
+.glyph-layer { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.glyph-layer canvas { display: block; width: 100%; height: 100%; }
 
 .header {
   position: relative; z-index: 20; height: 88px; display: flex; align-items: center; gap: 36px;
   padding: 0 var(--pad); border-bottom: 1px solid var(--line);
 }
 .header .mark { height: 30px; width: auto; }
-.header nav { display: flex; gap: 30px; font-size: 14px; }
+/* Spacing from the reference render: the menu starts well clear of the mark. */
+.header nav { display: flex; gap: 52px; margin-left: 44px; font-size: 14px; }
 .header nav a, .header .login { color: var(--t-nav); }
 .header nav a:hover, .header .login:hover { color: #fff; }
 .header .right { margin-left: auto; display: flex; align-items: center; gap: 26px; }
@@ -85,21 +89,17 @@ img { display: block; }
 .hero-content .trusted, .hero-content .partner { pointer-events: auto; }
 .trusted { width: fit-content; }
 
-.field { position: absolute; z-index: 1; right: 0; top: -40px; width: 60%; height: 860px; perspective: 1200px; overflow: hidden; }
-/* The artwork's glow is translucent black: cut off by the field's edge it
-   would draw a straight line across the symbol field behind it. Fade it in. */
-.field .art { position: absolute; inset: 0; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 16%); mask-image: linear-gradient(90deg, transparent 0, #000 16%); }
-.field .bg { position: absolute; left: 38%; top: 44%; width: 820px; max-width: none; transform: translate(-50%, -50%); pointer-events: none; opacity: 0.85; }
-.field .rings { position: absolute; inset: 0; pointer-events: none; }
-.ring {
-  position: absolute; left: 50%; top: 50%; border: 1px solid rgba(255, 255, 255, 0.055); border-radius: 50%;
-  transform: translate(-50%, -50%) rotateX(74deg); pointer-events: none;
-}
-.coin { position: absolute; will-change: transform; cursor: pointer; }
+.field { position: absolute; z-index: 1; right: 0; top: -40px; width: 64%; height: 860px; overflow: hidden; }
+.orbits, .mark-wrap, .coin { position: absolute; left: 0; top: 0; }
+.orbits { z-index: 0; overflow: visible; pointer-events: none; will-change: transform; }
+.mark-wrap { z-index: 3; pointer-events: none; will-change: transform; }
+.mark-wrap img { position: relative; width: 100%; height: 100%; filter: drop-shadow(0 0 14px rgba(255, 255, 255, 0.45)) drop-shadow(0 0 48px rgba(255, 255, 255, 0.16)); }
+.mark-wrap .bloom { position: absolute; inset: -70% -45%; border-radius: 50%; background: radial-gradient(closest-side, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.025) 50%, transparent 78%); }
+.coin { will-change: transform; cursor: pointer; }
 .coin .glow { position: absolute; inset: -34%; border-radius: 50%; z-index: -1; }
-.coin img { width: 100%; height: 100%; object-fit: contain; filter: brightness(0.72) saturate(0.78) drop-shadow(0 6px 16px rgba(0, 0, 0, 0.55)); }
+.coin img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.5)); }
 .coin-tag {
-  position: absolute; left: 0; top: 0; opacity: 0; pointer-events: none; padding-left: 14px;
+  position: absolute; z-index: 6; left: 0; top: 0; opacity: 0; pointer-events: none; padding-left: 14px;
   border-left: 1px solid rgba(255, 255, 255, 0.18); transition: opacity 0.15s;
 }
 .coin-tag .name { font-size: 15px; font-weight: 500; letter-spacing: 0.02em; }
@@ -230,7 +230,7 @@ img { display: block; }
   .hero { min-height: 0; padding-bottom: 72px; }
 }
 @media (max-width: 1100px) {
-  .field { opacity: 0.55; width: 54%; }
+  .field { opacity: 0.55; width: 60%; }
 }
 
 /* ---- narrower than the design file covers ---- */
