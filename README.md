@@ -30,7 +30,8 @@ Nile head and delivered to the merchant with a verifiable signature.
 | Keys out of `.env`: public key for the API, sealed keystore + unlock for the sweeper | done |
 | Operations console: sign-in, payout queue, approve/reject, audit log (`@relay/console`, `apps/console`) | done |
 | Landing page (`apps/landing`) | built from the design file; demo figures to replace before launch |
-| Merchant dashboard | later |
+| Applications from the site, approval in the console, invitations | done |
+| Merchant dashboard (`services/portal`, `apps/portal`): sign-in, balance, top-ups, payouts, API keys, webhooks | done, first version |
 
 ## Getting started
 
@@ -354,6 +355,44 @@ partner names, the calculator's rates (0.5% + 1.10 is the design file's
 placeholder, not Relay's pricing), the live activity feed and the
 infrastructure statuses. The images are the handoff's coin sprites and mark, re-encoded as WebP
 (about 0.15 MB in all).
+
+## Applications and the merchant dashboard
+
+Nobody signs themselves up. The site's "Get API access" and "Start integration"
+open an application form (`/access/`); "Log in" opens the dashboard (`/app/`).
+
+1. An application lands in the console under **Applications**. Operators see
+   the company, contact, expected volume and what it is for.
+2. **Approve** creates the merchant, their first project (with the fee you set)
+   and an account for the contact, and shows a one-time invitation link to
+   send them. The link lives in the URL fragment, so it never reaches a server
+   log; only its hash is stored, and it expires in 7 days. A lost or expired
+   link is replaced from the application, never recovered.
+3. The merchant opens the link, chooses a password (12 characters at least),
+   scans a QR code into an authenticator app and confirms with a code. The
+   second factor becomes theirs only once a code from it is accepted.
+4. In the dashboard they see their balance and top-ups, request payouts
+   (reviewed in the console as before), create and revoke API keys (shown
+   once, 10 at most) and set the webhook address and signing secret.
+
+The portal faces the internet, so it has the console's defences — generic
+sign-in failures, lockout after 5, replay-proof codes, HttpOnly SameSite=Strict
+cookies, a CSRF header and origin check, a strict content policy — plus rate
+limits on everything public and a honeypot on the form. Every merchant action
+goes into the audit log under their account. A merchant only ever sees their
+own projects; anyone else's answers as if it did not exist.
+
+```bash
+npm run portal:new-key        # PORTAL_SECRET_KEY, into the environment
+npm run portal:web:build      # the dashboard pages, into apps/portal/dist
+npm run portal:dev            # http://127.0.0.1:3200/app/
+npm run landing:dev           # the site on 5174 forwards /app and /portal/api to it
+```
+
+In production one web server serves the site and forwards `/app/` and
+`/portal/api/` to the portal, so everything is one origin. Set `PORTAL_URL`
+for the console to that public `/app/` address, so invitation links point
+there. There is no email sending yet: the operator passes the link on.
 
 ## Decisions worth knowing
 

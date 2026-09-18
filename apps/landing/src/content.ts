@@ -22,13 +22,20 @@ export const PRICING = {
 export const PRESETS = [100, 1_000, 10_000, 100_000];
 export const DEFAULT_AMOUNT = 10_000;
 
+/** Paths, not bare anchors, so the menu also works from the application page. */
 export const NAV = [
-  { href: '#product', label: 'Product' },
-  { href: '#infrastructure', label: 'Infrastructure' },
-  { href: '#developers', label: 'Developers' },
-  { href: '#company', label: 'Company' },
-  { href: '#status', label: 'Status' },
+  { href: '/#product', label: 'Product' },
+  { href: '/#infrastructure', label: 'Infrastructure' },
+  { href: '/#developers', label: 'Developers' },
+  { href: '/#company', label: 'Company' },
+  { href: '/#status', label: 'Status' },
 ];
+
+/** Where the calls to action go. */
+export const LINKS = {
+  apply: '/access/',
+  login: '/app/',
+};
 
 /** DEMO: placeholder names from the design file. */
 export const PARTNERS = ['Forum A', 'Marketplace B', 'Gaming Corp', 'Digital Store', 'Community Hub'] as const;

@@ -48,6 +48,8 @@ export interface Summary {
   merchants_owed: string;
   hot_wallet_short: boolean;
   /** Whether the service that signs and sends is running and unlocked. */
+  /** Applications from the website waiting for a decision. */
+  requests_new: number;
   sweeper: {
     state: 'locked' | 'unlocked' | 'unknown';
     since: string | null;
@@ -66,6 +68,33 @@ export interface AuditEntry {
   subject: { type: string; id: string } | null;
   detail: Record<string, unknown>;
   ip: string | null;
+}
+
+export type RequestStatus = 'new' | 'approved' | 'rejected' | 'all';
+
+export interface AccessRequest {
+  id: string;
+  company: string;
+  website: string | null;
+  contact_name: string;
+  email: string;
+  telegram: string | null;
+  monthly_volume: string;
+  use_case: string;
+  status: 'new' | 'approved' | 'rejected';
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  merchant_id: string | null;
+  /** invited until the applicant uses their link, then active. */
+  account_status: 'invited' | 'active' | 'disabled' | null;
+  ip: string | null;
+  created_at: string;
+}
+
+export interface Invite {
+  invite_url: string;
+  expires_in_days: number;
 }
 
 export class ApiError extends Error {
@@ -120,6 +149,12 @@ export const api = {
   approve: (id: string) => request<{ ok: true; state: string }>('POST', '/admin/api/payouts/' + encodeURIComponent(id) + '/approve', {}),
   reject: (id: string, reason: string) =>
     request<{ ok: true; state: string }>('POST', '/admin/api/payouts/' + encodeURIComponent(id) + '/reject', { reason }),
+  requests: (status: RequestStatus) => request<{ data: AccessRequest[] }>('GET', '/admin/api/requests?status=' + status),
+  approveRequest: (id: string, projectName: string, feePercent: number) =>
+    request<{ ok: true; request: AccessRequest } & Invite>('POST', '/admin/api/requests/' + encodeURIComponent(id) + '/approve', { project_name: projectName, fee_percent: feePercent }),
+  rejectRequest: (id: string, note: string) =>
+    request<{ ok: true; request: AccessRequest }>('POST', '/admin/api/requests/' + encodeURIComponent(id) + '/reject', { note }),
+  reinvite: (id: string) => request<{ ok: true } & Invite>('POST', '/admin/api/requests/' + encodeURIComponent(id) + '/reinvite', {}),
   audit: (subject?: string) =>
     request<{ data: AuditEntry[] }>('GET', '/admin/api/audit' + (subject ? '?subject=' + encodeURIComponent(subject) : '')),
 };

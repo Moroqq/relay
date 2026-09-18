@@ -1,12 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
-import type { Operator, Summary } from './api.ts';
+import { api, type Operator, type Summary } from './api.ts';
 import { PayoutsPage } from './PayoutsPage.tsx';
 import { AuditPage } from './AuditPage.tsx';
+import { RequestsPage } from './RequestsPage.tsx';
 
-type Page = 'payouts' | 'audit';
+type Page = 'payouts' | 'requests' | 'audit';
 
-const pageFromHash = (): Page => (window.location.hash === '#/audit' ? 'audit' : 'payouts');
+const pageFromHash = (): Page => {
+  const hash = window.location.hash;
+  return hash === '#/audit' ? 'audit' : hash === '#/requests' ? 'requests' : 'payouts';
+};
 
 export function Shell({ operator, network, onSignOut }: { operator: Operator; network: string; onSignOut: () => void }) {
   const [page, setPage] = useState<Page>(pageFromHash);
@@ -17,6 +21,9 @@ export function Shell({ operator, network, onSignOut }: { operator: Operator; ne
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+
+  // Stable, so pages that call it after every load do not reload because of it.
+  const refreshSummary = useCallback(() => { void api.summary().then(setSummary, () => undefined); }, []);
 
   const live = network === 'mainnet';
   const canDecide = operator.role === 'admin' || operator.role === 'operator';
@@ -67,6 +74,7 @@ export function Shell({ operator, network, onSignOut }: { operator: Operator; ne
         <div style={{ flex: 1, overflowY: 'auto', padding: '12px 0 8px' }}>
           <div className="eyebrow lbl" style={{ padding: '0 14px 6px', color: 'var(--t4)', fontWeight: 500 }}>Treasury</div>
           {navItem('payouts', 'Payouts', 'PO', summary?.counts.requested)}
+          {navItem('requests', 'Applications', 'AP', summary?.requests_new)}
           {navItem('audit', 'Audit log', 'AU')}
         </div>
 
@@ -81,11 +89,9 @@ export function Shell({ operator, network, onSignOut }: { operator: Operator; ne
       </nav>
 
       <main style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-        {page === 'payouts' ? (
-          <PayoutsPage canDecide={canDecide} network={network} onSummary={setSummary} />
-        ) : (
-          <AuditPage />
-        )}
+        {page === 'payouts' && <PayoutsPage canDecide={canDecide} network={network} onSummary={setSummary} />}
+        {page === 'requests' && <RequestsPage canDecide={canDecide} onChange={refreshSummary} />}
+        {page === 'audit' && <AuditPage />}
       </main>
     </div>
   );

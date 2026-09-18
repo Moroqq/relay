@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { ACTIVITY, DEFAULT_AMOUNT, NAV, PARTNERS, PRESETS, PRICING } from './content.ts';
+import { ACTIVITY, DEFAULT_AMOUNT, LINKS, NAV, PARTNERS, PRESETS, PRICING } from './content.ts';
 import { PartnerIcons, StatIcons } from './icons.tsx';
 import { RelayField } from './RelayField.tsx';
 
@@ -14,8 +14,8 @@ export function Header() {
         {NAV.map((item) => <a key={item.href} href={item.href}>{item.label}</a>)}
       </nav>
       <div className="right">
-        <a className="login" href="#login">Log in</a>
-        <a className="btn btn-sm" href="#api">Get API access</a>
+        <a className="login" href={LINKS.login}>Log in</a>
+        <a className="btn btn-sm" href={LINKS.apply}>Get API access</a>
       </div>
     </header>
   );
@@ -80,7 +80,7 @@ export function Hero() {
             so you can focus on your product.
           </p>
           <div className="actions">
-            <a className="btn" href="#api">Get API access</a>
+            <a className="btn" href={LINKS.apply}>Get API access</a>
             <a className="doc-link" href="#developers">Read documentation <span>→</span></a>
           </div>
         </div>

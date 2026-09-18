@@ -42,7 +42,9 @@
     "landing:dev": "npm run dev --workspace @relay/landing",
     "landing:build": "npm run build --workspace @relay/landing",
     "portal:dev": "npm run build && node --env-file-if-exists=.env services/portal/dist/index.js",
-    "portal:new-key": "node scripts/new-portal-key.mjs"
+    "portal:new-key": "node scripts/new-portal-key.mjs",
+    "portal:web:build": "npm run build --workspace @relay/portal-web",
+    "portal:web:dev": "npm run dev --workspace @relay/portal-web"
   },
   "devDependencies": {
     "@ethereumjs/common": "^10.1.3",

@@ -276,3 +276,53 @@ main, .footer { position: relative; z-index: 1; }
 @media (prefers-reduced-motion: reduce) {
   .scroll-hint .chev, .live li { animation: none; }
 }
+
+/* ---- the application page ---- */
+.access { position: relative; z-index: 1; padding: 72px var(--pad) 120px; }
+.access-grid { display: flex; gap: 80px; align-items: flex-start; }
+.access-intro { flex: 0 0 38%; }
+.access-title { margin: 16px 0 0; font-size: 44px; line-height: 1.08; font-weight: 500; letter-spacing: -0.025em; }
+.access-steps { list-style: none; margin: 40px 0 0; padding: 0; display: grid; gap: 22px; }
+.access-steps li { display: flex; gap: 16px; }
+.access-steps .n { font-size: 12px; color: var(--t-dim); padding-top: 2px; }
+.access-steps .t { font-size: 15px; letter-spacing: -0.005em; }
+.access-steps .d { font-size: 13.5px; line-height: 1.6; color: var(--t-muted); margin-top: 4px; max-width: 380px; }
+.access-have { margin-top: 40px; font-size: 13.5px; color: var(--t-muted); }
+.access-have a { color: var(--t1); }
+.access-panel { padding: 28px; }
+.access-panel form { display: grid; gap: 18px; }
+.access-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.access-panel label { display: grid; gap: 8px; }
+.access-panel label > span { font-size: 12px; letter-spacing: 0.04em; color: var(--t-muted); }
+.access-panel label em { font-style: normal; color: var(--t-dim); margin-left: 4px; }
+.access-panel input, .access-panel select, .access-panel textarea {
+  width: 100%; font: 400 14.5px var(--sans); color: var(--t1); background: #0d0e10;
+  border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 11px 12px; outline: none;
+  transition: border-color 0.15s;
+}
+.access-panel select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, #8a9099 50%), linear-gradient(135deg, #8a9099 50%, transparent 50%);
+  background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+.access-panel textarea { resize: vertical; min-height: 110px; line-height: 1.55; }
+.access-panel input:focus, .access-panel select:focus, .access-panel textarea:focus { border-color: rgba(96, 206, 172, 0.55); }
+.access-panel input::placeholder, .access-panel textarea::placeholder { color: #50555d; }
+.access-panel label.bad input, .access-panel label.bad select, .access-panel label.bad textarea { border-color: rgba(214, 83, 75, 0.7); }
+.access-trap { position: absolute !important; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+.access-error { font-size: 13px; color: #e37d76; }
+.access-submit { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.access-submit .btn:disabled { opacity: 0.6; cursor: default; }
+.access-submit span { font-size: 12.5px; color: var(--t-dim); }
+.access-done { display: grid; gap: 12px; justify-items: start; padding: 12px 4px; }
+.access-done .t { font-size: 22px; font-weight: 500; letter-spacing: -0.015em; }
+.access-done .d { font-size: 14px; line-height: 1.6; color: var(--t-body); max-width: 440px; }
+.access-done .btn { margin-top: 8px; }
+@media (max-width: 1000px) {
+  .access-grid { flex-direction: column; gap: 48px; }
+  .access-intro { flex: none; }
+  .access-panel { width: 100%; }
+}
+@media (max-width: 560px) {
+  .access { padding-top: 48px; }
+  .access-title { font-size: 34px; }
+  .access-row { grid-template-columns: 1fr; }
+  .access-panel { padding: 20px; }
+}

@@ -1,0 +1,150 @@
+/*
+ * Tokens lifted from the Relay console mockup (design_handoff_relay/Relay.dc.html)
+ * rather than chosen afresh: status colours, the four text greys, surfaces, and
+ * the two hairline weights. Fonts are bundled, not fetched from a CDN — a money
+ * console should not depend on, or report its use to, a third-party server.
+ */
+@import '@fontsource/onest/400.css';
+@import '@fontsource/onest/500.css';
+@import '@fontsource/onest/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+:root {
+  --ok: #5fa377;
+  --warn: #c4913b;
+  --err: #c4635e;
+  --info: #6c8bd9;
+  --info-hover: #8fa7e4;
+  --accent: #7b7fee;
+
+  --t1: #f2f3f5;
+  --t2: #a0a5ad;
+  --t3: #686e78;
+  --t4: #484d55;
+
+  --page: #090a0b;
+  --chrome: #0c0d0f;
+  --panel: #0e1012;
+  --raised: #131518;
+
+  --line-soft: rgba(255, 255, 255, 0.055);
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.15);
+
+  --sans: 'Onest', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --radius: 5px;
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  height: 100%;
+  background: var(--page);
+  color: var(--t1);
+  font-family: var(--sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button, input, textarea { font: inherit; color: inherit; }
+
+a { color: var(--info); text-decoration: none; }
+a:hover { color: var(--info-hover); }
+
+::selection { background: rgba(123, 127, 238, 0.35); }
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: var(--radius); }
+::-webkit-scrollbar-track { background: transparent; }
+
+:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* Upper-case eyebrow labels, as the mockup uses for column heads and metrics. */
+.eyebrow {
+  font-size: 9.5px;
+  letter-spacing: 0.13em;
+  color: var(--t3);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 7px;
+  flex: 0 0 5px;
+}
+
+.btn {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.btn:hover:not(:disabled) { background: var(--raised); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn-approve { color: var(--ok); border-color: rgba(95, 163, 119, 0.32); }
+.btn-approve:hover:not(:disabled) { background: rgba(95, 163, 119, 0.09); }
+.btn-reject { color: var(--err); border-color: rgba(196, 99, 94, 0.3); }
+.btn-reject:hover:not(:disabled) { background: rgba(196, 99, 94, 0.08); }
+.btn-primary { background: var(--t1); color: var(--page); border-color: var(--t1); }
+.btn-primary:hover:not(:disabled) { background: #fff; }
+
+.field {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--page);
+  outline: none;
+}
+.field:focus { border-color: var(--line-strong); }
+textarea.field { height: auto; padding: 8px 10px; resize: vertical; min-height: 72px; }
+
+@keyframes panin { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+}
+
+/* Sidebar collapses to an icon rail below 1200px, as in the mockup. */
+.abbr { display: none; }
+.nav-item:hover { background: var(--raised) !important; color: var(--t1) !important; }
+@media (max-width: 1200px) {
+  .sb { width: 58px !important; flex: 0 0 58px !important; }
+  .sb .lbl { display: none !important; }
+  .sb .abbr { display: inline; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em; }
+  .sb .nav-item { justify-content: center; padding: 7px 0 !important; }
+}
+
+/* Payout table rows: actions surface on hover or keyboard focus, always on touch. */
+.prow { transition: background 90ms ease-out; }
+.prow:hover, .prow:focus-visible { background: rgba(255, 255, 255, 0.022); }
+.prow:focus-visible { outline: none; box-shadow: inset 2px 0 0 var(--accent); }
+.prow .row-actions { opacity: 0; transition: opacity 90ms ease-out; }
+.prow:hover .row-actions, .prow:focus-within .row-actions { opacity: 1; }
+@media (hover: none) { .prow .row-actions { opacity: 1; } }
+
+.kv { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+.kv > .k { flex: 0 0 118px; font-size: 11.5px; color: var(--t3); }
+.kv > .v { min-width: 0; font-size: 12px; word-break: break-all; }

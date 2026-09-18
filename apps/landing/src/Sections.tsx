@@ -1,4 +1,4 @@
-import { ASSETS, FLOW, INFRA, SNIPPET, TRACE } from './content.ts';
+import { ASSETS, FLOW, INFRA, LINKS, SNIPPET, TRACE } from './content.ts';
 
 export function PaymentFlow() {
   return (
@@ -125,7 +125,7 @@ export function Cta() {
       <div className="wrap">
         <img className="mark" src="/assets/relay-mark.webp" alt="" width={96} height={64} loading="lazy" />
         <h2 className="h2">Connect your platform to Relay.</h2>
-        <a className="btn" href="#api">Start integration</a>
+        <a className="btn" href={LINKS.apply}>Start integration</a>
       </div>
     </section>
   );
