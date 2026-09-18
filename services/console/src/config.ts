@@ -41,6 +41,12 @@ export interface ConsoleConfig {
    * the public sees it, e.g. https://relay.example/app/.
    */
   readonly portalUrl: string;
+  /**
+   * Whether signing in asks for the authenticator code. Always on for real
+   * money; CONSOLE_REQUIRE_CODE=false is accepted only for local development
+   * on a test network, and the console refuses to start with it otherwise.
+   */
+  readonly requireCode: boolean;
 }
 
 function intEnv(name: string, fallback: number): number {
@@ -74,13 +80,20 @@ export function loadConsoleConfig(): ConsoleConfig {
     throw new Error('CONSOLE_SECURE_COOKIES cannot be false in production: the session cookie would travel in the clear');
   }
 
+  const network = process.env['TRON_NETWORK']?.trim() || 'nile';
+  const requireCode = process.env['CONSOLE_REQUIRE_CODE']?.trim() !== 'false';
+  if (!requireCode && (production || network === 'mainnet')) {
+    throw new Error('CONSOLE_REQUIRE_CODE=false is for local development on a test network only. The console approves payouts; on a real server the second factor stays.');
+  }
+
   return Object.freeze({
     port,
     host,
     secretKey: parseSecretboxKey(process.env['CONSOLE_SECRET_KEY']),
     secureCookies,
     allowedOrigin: process.env['CONSOLE_ORIGIN']?.trim() || 'http://127.0.0.1:' + port,
-    network: process.env['TRON_NETWORK']?.trim() || 'nile',
+    network,
+    requireCode,
     webDir: webDir(),
     portalUrl: process.env['PORTAL_URL']?.trim() || 'http://127.0.0.1:5174/app/',
   });

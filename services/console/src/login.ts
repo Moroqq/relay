@@ -15,6 +15,7 @@ import {
 } from '@relay/auth';
 import {
   acceptLogin,
+  acceptPasswordLogin,
   findOperatorByEmail,
   recordFailedAttempt,
   writeAudit,
@@ -33,6 +34,8 @@ export interface LoginInput {
   readonly email: string;
   readonly password: string;
   readonly code: string;
+  /** False only in local development: the password alone signs in. */
+  readonly requireCode: boolean;
   readonly ip: string | null;
   readonly nowSeconds: number;
 }
@@ -69,6 +72,12 @@ export async function login(input: LoginInput, secretKey: Buffer): Promise<Login
   }
 
   if (!(await verifyPassword(input.password, operator.passwordHash))) return fail('password');
+
+  if (!input.requireCode) {
+    await acceptPasswordLogin(operator.id);
+    await writeAudit({ operatorId: operator.id, action: 'login.succeeded', detail: { code: 'not_required' }, ip: input.ip });
+    return { ok: true, operator };
+  }
 
   let key: Uint8Array;
   try {

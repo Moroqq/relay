@@ -141,6 +141,7 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown):
 
 export const api = {
   me: () => request<{ operator: Operator; network: string }>('GET', '/admin/api/me'),
+  loginOptions: () => request<{ code: boolean }>('GET', '/admin/api/login-options'),
   login: (email: string, password: string, code: string) =>
     request<{ operator: Operator }>('POST', '/admin/api/login', { email, password, code }),
   logout: () => request<{ ok: true }>('POST', '/admin/api/logout', {}),

@@ -283,6 +283,11 @@ anything at or before it is refused, so a code read over a shoulder cannot be
 replayed within its window. Two sign-ins racing with one code cannot both win —
 the counter update is conditional.
 
+For local development only, `CONSOLE_REQUIRE_CODE=false` drops the code and the
+form hides its field. The console refuses to start with it under
+`NODE_ENV=production` or on mainnet: where payouts are real, so is the second
+factor.
+
 **Every wrong answer looks the same.** Unknown address, wrong password, wrong
 code, locked, disabled: one message, and roughly one scrypt derivation of work
 each, so neither the response nor its timing says which part was right. Five

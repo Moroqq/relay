@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 
 import { api, ApiError } from './api.ts';
 
@@ -8,19 +8,27 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Asked of the server: off only in local development. Shown until we know.
+  const [askCode, setAskCode] = useState(true);
+
+  useEffect(() => {
+    api.loginOptions().then((o) => setAskCode(o.code), () => undefined);
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await api.login(email, password, code);
+      await api.login(email, password, askCode ? code : '');
       onSignedIn();
     } catch (err) {
       // The server answers every failure identically on purpose, so there is
       // nothing more specific to show — and a code that was right a moment ago
       // cannot be used again, so it is cleared.
-      setError(err instanceof ApiError && err.status === 401 ? 'Email, password or code is incorrect.' : 'Could not reach the console. Try again.');
+      setError(err instanceof ApiError && err.status === 401
+        ? (askCode ? 'Email, password or code is incorrect.' : 'Email or password is incorrect.')
+        : 'Could not reach the console. Try again.');
       setCode('');
     } finally {
       setBusy(false);
@@ -48,7 +56,7 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
             <span className="eyebrow">Password</span>
             <input className="field" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
           </label>
-          <label style={{ display: 'grid', gap: 6 }}>
+          {askCode && <label style={{ display: 'grid', gap: 6 }}>
             <span className="eyebrow">Authenticator code</span>
             <input
               className="field mono"
@@ -62,7 +70,7 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
               onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ''))}
               style={{ letterSpacing: '0.3em', fontSize: 15 }}
             />
-          </label>
+          </label>}
 
           {error && (
             <div role="alert" style={{ fontSize: 12, color: 'var(--err)', display: 'flex', alignItems: 'center' }}>

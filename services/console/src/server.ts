@@ -86,14 +86,18 @@ export function buildConsoleServer(config: ConsoleConfig, options: { logger?: bo
     return reply.status(500).send({ error: { code: 'internal_error', message: 'Something went wrong' } });
   });
 
+  /** What the sign-in form should ask for. */
+  app.get('/admin/api/login-options', async () => ({ code: config.requireCode }));
+
   app.post<{ Body: { email?: unknown; password?: unknown; code?: unknown } }>('/admin/api/login', async (request, reply) => {
     const { email, password, code } = request.body ?? {};
     const invalid = new ConsoleError(401, 'invalid_credentials', 'Email, password or code is incorrect');
-    if (typeof email !== 'string' || typeof password !== 'string' || typeof code !== 'string') throw invalid;
-    if (email.length > 320 || password.length > 1024 || code.length > 16) throw invalid;
+    const codeText = code === undefined && !config.requireCode ? '' : code;
+    if (typeof email !== 'string' || typeof password !== 'string' || typeof codeText !== 'string') throw invalid;
+    if (email.length > 320 || password.length > 1024 || codeText.length > 16) throw invalid;
 
     const result = await login(
-      { email, password, code, ip: clientIp(request), nowSeconds: Math.floor(Date.now() / 1000) },
+      { email, password, code: codeText, requireCode: config.requireCode, ip: clientIp(request), nowSeconds: Math.floor(Date.now() / 1000) },
       config.secretKey,
     );
     if (!result.ok) throw invalid;

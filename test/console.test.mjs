@@ -27,7 +27,7 @@ let projectId;
 
 before(async () => {
   app = buildConsoleServer({
-    port: 3100, host: '127.0.0.1', secretKey: SECRET_KEY, secureCookies: false, allowedOrigin: ORIGIN, network: 'nile', webDir: null, portalUrl: 'http://127.0.0.1:5174/app/',
+    port: 3100, host: '127.0.0.1', secretKey: SECRET_KEY, secureCookies: false, allowedOrigin: ORIGIN, network: 'nile', webDir: null, portalUrl: 'http://127.0.0.1:5174/app/', requireCode: true,
   });
   const merchantId = newId('merchant');
   projectId = newId('project');
@@ -271,7 +271,7 @@ test('the console pages load without a session, under a policy that runs only th
   await fs.writeFile(path.join(dir, 'index.html'), '<!doctype html><div id="root"></div>');
   await fs.writeFile(path.join(dir, 'assets', 'index-abc123.js'), 'export {};');
   const web = buildConsoleServer({
-    port: 3100, host: '127.0.0.1', secretKey: SECRET_KEY, secureCookies: false, allowedOrigin: ORIGIN, network: 'nile', webDir: dir, portalUrl: 'http://127.0.0.1:5174/app/',
+    port: 3100, host: '127.0.0.1', secretKey: SECRET_KEY, secureCookies: false, allowedOrigin: ORIGIN, network: 'nile', webDir: dir, portalUrl: 'http://127.0.0.1:5174/app/', requireCode: true,
   });
   try {
     const page = await web.inject({ method: 'GET', url: '/admin/' });
@@ -317,4 +317,41 @@ test('the summary says when signing is locked, and when the sweeper has gone qui
   sweeper = (await get('/admin/api/summary', cookie)).json().sweeper;
   assert.equal(sweeper.since, before);
   assert.equal(sweeper.payouts, 'live');
+});
+
+test('with the code switched off for local development, the password alone signs in', async () => {
+  const local = buildConsoleServer({
+    port: 3100, host: '127.0.0.1', secretKey: SECRET_KEY, secureCookies: false, allowedOrigin: ORIGIN, network: 'nile',
+    webDir: null, portalUrl: 'http://127.0.0.1:5174/app/', requireCode: false,
+  });
+  try {
+    const op = await makeOperator();
+    const options = await local.inject({ method: 'GET', url: '/admin/api/login-options' });
+    assert.deepEqual(options.json(), { code: false });
+    const headers = { [CSRF_HEADER]: '1', origin: ORIGIN };
+    const wrong = await local.inject({ method: 'POST', url: '/admin/api/login', payload: { email: op.operator.email, password: 'not it at all' }, headers });
+    assert.equal(wrong.statusCode, 401);
+    const ok = await local.inject({ method: 'POST', url: '/admin/api/login', payload: { email: op.operator.email, password: op.password }, headers });
+    assert.equal(ok.statusCode, 200, ok.body);
+  } finally {
+    await local.close();
+  }
+});
+
+test('the code cannot be switched off in production or on mainnet', async () => {
+  const { loadConsoleConfig } = await import('../services/console/dist/config.js');
+  const saved = { NODE_ENV: process.env.NODE_ENV, TRON_NETWORK: process.env.TRON_NETWORK, CONSOLE_REQUIRE_CODE: process.env.CONSOLE_REQUIRE_CODE };
+  try {
+    process.env.CONSOLE_REQUIRE_CODE = 'false';
+    process.env.TRON_NETWORK = 'mainnet';
+    delete process.env.NODE_ENV;
+    assert.throws(() => loadConsoleConfig(), /local development/);
+    process.env.TRON_NETWORK = 'nile';
+    process.env.NODE_ENV = 'production';
+    process.env.CONSOLE_SECURE_COOKIES = 'true';
+    assert.throws(() => loadConsoleConfig(), /local development/);
+  } finally {
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    delete process.env.CONSOLE_SECURE_COOKIES;
+  }
 });

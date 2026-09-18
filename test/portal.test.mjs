@@ -36,7 +36,7 @@ const portalConfig = {
 before(async () => {
   consoleApp = buildConsoleServer({
     port: 3100, host: '127.0.0.1', secretKey: CONSOLE_KEY, secureCookies: false, allowedOrigin: CONSOLE_ORIGIN,
-    network: 'nile', webDir: null, portalUrl: PORTAL_URL,
+    network: 'nile', webDir: null, portalUrl: PORTAL_URL, requireCode: true,
   });
   // Generous limits for the suite; the rate-limit test builds its own server.
   portal = buildPortalServer(portalConfig, {

@@ -107,6 +107,17 @@ export async function acceptLogin(operatorId: string, totpCounter: bigint): Prom
   return rowCount === 1;
 }
 
+/**
+ * Accept a sign-in by password alone, where the console is configured not to
+ * ask for a code (local development only): reset failures, stamp the login.
+ */
+export async function acceptPasswordLogin(operatorId: string): Promise<void> {
+  await getPool().query(
+    'UPDATE operators SET failed_attempts = 0, locked_until = NULL, last_login_at = now() WHERE id = $1',
+    [operatorId],
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------
