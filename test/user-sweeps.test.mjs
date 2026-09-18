@@ -69,7 +69,7 @@ async function userWithDeposits(amounts) {
 }
 
 const candidateFor = async (userId) =>
-  (await findUserSweepCandidates(500)).find((c) => c.endUserId === userId);
+  (await findUserSweepCandidates(1_000_000)).find((c) => c.endUserId === userId);
 
 const payableFor = async () => {
   const { rows } = await getPool().query(

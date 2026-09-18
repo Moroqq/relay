@@ -153,7 +153,7 @@ test('a payout that failed on chain releases its reservation', async () => {
 // --- sweeps that used to block their address forever -------------------------
 
 const userCandidate = async (userId) =>
-  (await db.findUserSweepCandidates(500)).find((c) => c.endUserId === userId);
+  (await db.findUserSweepCandidates(1_000_000)).find((c) => c.endUserId === userId);
 
 test('a sweep that fails before signing releases its address', async () => {
   // A node timeout while building used to leave the sweep planned forever,
