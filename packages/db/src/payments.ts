@@ -5,7 +5,7 @@
 import type { PoolClient } from 'pg';
 import type { Asset, PaymentState } from '@relay/core';
 import { newId } from '@relay/core';
-import type { DepositWallet } from '@relay/wallet';
+import type { AddressSource } from '@relay/wallet';
 
 import { getPool, inTransaction, toBigInt, toBigIntOrNull, isUniqueViolation } from './pool.ts';
 import { findProject, type ProjectRecord } from './projects.ts';
@@ -77,7 +77,7 @@ export class PaymentError extends Error {
  */
 async function allocateAddress(
   client: PoolClient,
-  wallet: DepositWallet,
+  wallet: AddressSource,
 ): Promise<{ address: string; index: number; path: string }> {
   const { rows } = await client.query<{ nextval: string }>(
     "SELECT nextval('deposit_address_index_seq') AS nextval",
@@ -132,7 +132,7 @@ async function findByExternalRef(
  */
 export async function createPayment(
   input: CreatePaymentInput,
-  wallet: DepositWallet,
+  wallet: AddressSource,
 ): Promise<CreatePaymentResult> {
   try {
     return await inTransaction(async (client) => {

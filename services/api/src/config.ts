@@ -6,12 +6,13 @@
  * first payment of the day.
  */
 
-import { DepositWallet } from '@relay/wallet';
+import { DepositAddresses } from '@relay/wallet';
 
 export interface Config {
   readonly port: number;
   readonly host: string;
-  readonly wallet: DepositWallet;
+  /** Hands out deposit addresses. The public half of the key only: this service never signs. */
+  readonly wallet: DepositAddresses;
   readonly requiredConfirmations: number;
   readonly paymentTtlMinutes: number;
   readonly network: string;
@@ -42,7 +43,14 @@ export function loadConfig(): Config {
   const network = process.env['TRON_NETWORK']?.trim() ?? 'nile';
   const isProduction = network === 'mainnet';
 
-  const wallet = DepositWallet.fromMnemonic(requireEnv('WALLET_MNEMONIC'));
+  // The API is the most exposed service there is, and handing out addresses is
+  // all it does with the key. So it gets the extended public key and nothing
+  // that can spend. In production a mnemonic in its environment is a mistake
+  // worth stopping for, not a spare.
+  if (process.env['NODE_ENV'] === 'production' && process.env['WALLET_MNEMONIC']?.trim()) {
+    throw new Error('WALLET_MNEMONIC is set for the API, which needs only DEPOSIT_XPUB. Remove the mnemonic from its environment.');
+  }
+  const wallet = DepositAddresses.fromXpub(requireEnv('DEPOSIT_XPUB'));
 
   return Object.freeze({
     port: intEnv('PORT', 3000),

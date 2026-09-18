@@ -21,16 +21,20 @@ import {
   findUserSweepCandidates,
   recordConfirmed,
   recordUserSweepConfirmed,
+  reportServiceStatus,
 } from '@relay/db';
 import { TronClient, USDT_TRX_DESCRIPTION, priceFromRound, type ChainPrices } from '@relay/tron';
 import { decodeAddress } from '@relay/wallet';
 
-import { loadSweeperConfig } from './config.ts';
+import { loadSweeperSettings, type SweeperConfig } from './config.ts';
+import { startControlServer } from './control.ts';
+import { KeyHolder } from './keys.ts';
 import { describeDecision, sweepPayment, sweepUserAddress } from './sweep.ts';
 import { reconcilePayout, sendPayout } from './payouts.ts';
 import { reconcileVerdict } from './payout-reconcile.ts';
 
-const config = loadSweeperConfig();
+const config = loadSweeperSettings();
+const holder = new KeyHolder(config, config.keySource);
 const client = new TronClient({ baseUrl: config.fullNode, apiKey: config.apiKey });
 
 let running = true;
@@ -42,7 +46,14 @@ const log = (message: string, extra: Record<string, unknown> = {}): void => {
   console.log(`[sweeper] ${message}${detail === '' ? '' : ` ${detail}`}`);
 };
 
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+let wake: (() => void) | null = null;
+/** Wait for the next pass — or less, if an unlock means there is work to do now. */
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(done, ms);
+    function done(): void { clearTimeout(timer); wake = null; resolve(); }
+    wake = done;
+  });
 
 /**
  * Check whether sweeps already sent have landed, and book or release them.
@@ -98,8 +109,11 @@ async function reconcile(): Promise<void> {
   }
 }
 
-/** See signed payouts through to done, and send the approved ones. */
-async function payouts(prices: ChainPrices | null): Promise<void> {
+/**
+ * See signed payouts through to done, and send the approved ones — the second
+ * part only while the keys are unlocked.
+ */
+async function payouts(prices: ChainPrices | null, working: SweeperConfig | null): Promise<void> {
   const now = Date.now();
 
   for (const payout of await findUnfinishedPayouts(config.batchSize)) {
@@ -111,11 +125,15 @@ async function payouts(prices: ChainPrices | null): Promise<void> {
 
   const sendable = await findSendablePayouts(config.batchSize);
   if (sendable.length === 0) return;
+  if (working === null) {
+    remindLocked('approved payouts are');
+    return;
+  }
   const livePrices = prices ?? (await client.getChainPrices());
 
   for (const payout of sendable) {
     if (!running) break;
-    const outcome = await sendPayout(payout, client, livePrices, config);
+    const outcome = await sendPayout(payout, client, livePrices, working);
     log(outcome.kind === 'signed' ? 'payout signed but NOT broadcast (dry run)' : `payout ${outcome.kind}`, {
       payout: payout.id,
       to: payout.toAddress,
@@ -154,13 +172,45 @@ async function readTrxPrice(): Promise<{ ok: true; units: bigint } | { ok: false
   }
 }
 
+/** Tell the console where signing stands. A failed report never stops a pass. */
+async function report(): Promise<void> {
+  try {
+    await reportServiceStatus('sweeper', holder.state, {
+      payouts: config.payoutsDryRun ? 'dry_run' : 'live',
+      sweeps: config.dryRun ? 'dry_run' : 'live',
+      key_source: config.keySource.kind,
+      hot_wallet: config.hotWalletAddress,
+      poll_ms: config.pollIntervalMs,
+    });
+  } catch (error) {
+    log('could not report status', { error: (error as Error).message });
+  }
+}
+
+let lastReminder = 0;
+/** Say that work is waiting on an unlock — every few minutes, not every pass. */
+function remindLocked(what: string): void {
+  if (Date.now() - lastReminder < 5 * 60_000) return;
+  lastReminder = Date.now();
+  log('LOCKED: ' + what + ' waiting. Unlock with: npm run keys:unlock');
+}
+
 async function pass(): Promise<void> {
+  await report();
   await reconcile();
-  await payouts(null);
+
+  // Read once: a lock arriving mid-pass takes effect from the next one.
+  const keys = holder.keys;
+  const working: SweeperConfig | null = keys === null ? null : { ...config, ...keys };
+  await payouts(null, working);
 
   const payments = await findSweepCandidates(config.batchSize);
   const users = await findUserSweepCandidates(config.batchSize);
   if (payments.length === 0 && users.length === 0) return;
+  if (working === null) {
+    remindLocked('deposits to sweep are');
+    return;
+  }
 
   const price = await readTrxPrice();
   if (!price.ok) {
@@ -173,10 +223,10 @@ async function pass(): Promise<void> {
   const prices = await client.getChainPrices();
 
   const work = [
-    ...payments.map((c) => ({ label: c.paymentId, run: () => sweepPayment(c, client, prices, price.units, config) })),
+    ...payments.map((c) => ({ label: c.paymentId, run: () => sweepPayment(c, client, prices, price.units, working) })),
     ...users.map((c) => ({
       label: `${c.endUserId} (${c.depositCount} deposits)`,
-      run: () => sweepUserAddress(c, client, prices, price.units, config),
+      run: () => sweepUserAddress(c, client, prices, price.units, working),
     })),
   ];
 
@@ -237,12 +287,31 @@ log('started', {
   trx_price: initialPrice.ok ? (Number(initialPrice.units) / 1e6).toFixed(6) + ' USDT' : 'unusable: ' + initialPrice.reason,
   node: config.fullNode,
   treasury: config.treasuryAddress,
-  hot_wallet: config.hotWallet.address,
+  hot_wallet: config.hotWalletAddress,
+  keys: config.keySource.kind === 'keystore' ? 'LOCKED until unlocked (npm run keys:unlock)' : 'from WALLET_MNEMONIC (development)',
   payouts: config.payoutsDryRun ? 'DRY RUN' : 'LIVE — payouts will be sent',
   mode: config.dryRun ? 'DRY RUN — nothing will be broadcast' : 'LIVE — funds will move',
   max_fee_bps: config.policy.maxFeeBps,
   min_units: config.policy.minValueUnits,
 });
+
+const control = config.keySource.kind === 'keystore'
+  ? await startControlServer(config.keySource.controlSocket, holder, {
+      log,
+      onChange: (state, how) => {
+        log('keys ' + how, { state });
+        void report();
+        if (state === 'unlocked') wake?.();
+      },
+    })
+  : null;
+if (control !== null && config.keySource.kind === 'keystore') {
+  log('waiting to be unlocked', { socket: config.keySource.controlSocket });
+}
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => wake?.());
+}
 
 while (running) {
   try {
@@ -253,5 +322,7 @@ while (running) {
   if (running) await sleep(config.pollIntervalMs);
 }
 
+control?.close();
+holder.lock();
 await closePool();
 log('stopped');

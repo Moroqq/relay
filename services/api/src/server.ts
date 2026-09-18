@@ -4,7 +4,7 @@
 
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { findProjectByApiKey, type ProjectRecord } from '@relay/db';
-import type { DepositWallet } from '@relay/wallet';
+import type { AddressSource } from '@relay/wallet';
 
 import { ApiError, unauthorized } from './errors.ts';
 import { registerPaymentRoutes } from './routes/payments.ts';
@@ -18,7 +18,7 @@ declare module 'fastify' {
 }
 
 export interface ServerOptions {
-  readonly wallet: DepositWallet;
+  readonly wallet: AddressSource;
   readonly requiredConfirmations: number;
   readonly paymentTtlMinutes: number;
   readonly logger?: boolean;

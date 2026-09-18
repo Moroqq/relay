@@ -10,12 +10,13 @@ import {
   listAudit,
   listConsolePayouts,
   readConsoleSummary,
+  readServiceStatus,
   rejectPayout,
   writeAudit,
 } from '@relay/db';
 
 import { ConsoleError } from './errors.ts';
-import { auditView, payoutView, summaryView } from './views.ts';
+import { auditView, payoutView, summaryView, sweeperView } from './views.ts';
 
 const MAX_REASON_LENGTH = 500;
 
@@ -27,7 +28,10 @@ function requireDecider(request: FastifyRequest): void {
 }
 
 export function registerConsoleRoutes(app: FastifyInstance): void {
-  app.get('/admin/api/summary', async () => summaryView(await readConsoleSummary()));
+  app.get('/admin/api/summary', async () => ({
+    ...summaryView(await readConsoleSummary()),
+    sweeper: sweeperView(await readServiceStatus('sweeper'), Date.now()),
+  }));
 
   app.get<{ Querystring: { tab?: string } }>('/admin/api/payouts', async (request) => {
     const tab = request.query.tab ?? 'requested';

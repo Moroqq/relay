@@ -296,3 +296,25 @@ test('the console pages load without a session, under a policy that runs only th
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test('the summary says when signing is locked, and when the sweeper has gone quiet', async () => {
+  const cookie = await signIn(await makeOperator('viewer'));
+  await db.reportServiceStatus('sweeper', 'locked', { payouts: 'dry_run', sweeps: 'dry_run', poll_ms: 30000 });
+  let sweeper = (await get('/admin/api/summary', cookie)).json().sweeper;
+  assert.equal(sweeper.state, 'locked');
+  assert.equal(sweeper.stale, false);
+  assert.equal(sweeper.payouts, 'dry_run');
+
+  // A report ten minutes old: whatever it last said, it is not running now.
+  await db.getPool().query(`UPDATE service_status SET updated_at = now() - interval '10 minutes' WHERE service = 'sweeper'`);
+  sweeper = (await get('/admin/api/summary', cookie)).json().sweeper;
+  assert.equal(sweeper.stale, true);
+
+  // `since` marks the change of state, not the latest report.
+  await db.reportServiceStatus('sweeper', 'unlocked', { payouts: 'live', sweeps: 'dry_run', poll_ms: 30000 });
+  const before = (await get('/admin/api/summary', cookie)).json().sweeper.since;
+  await db.reportServiceStatus('sweeper', 'unlocked', { payouts: 'live', sweeps: 'dry_run', poll_ms: 30000 });
+  sweeper = (await get('/admin/api/summary', cookie)).json().sweeper;
+  assert.equal(sweeper.since, before);
+  assert.equal(sweeper.payouts, 'live');
+});

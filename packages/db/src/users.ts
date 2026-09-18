@@ -3,7 +3,7 @@
  */
 
 import { newId } from '@relay/core';
-import type { DepositWallet } from '@relay/wallet';
+import type { AddressSource } from '@relay/wallet';
 
 import { getPool, inTransaction, isUniqueViolation } from './pool.ts';
 import { findProject } from './projects.ts';
@@ -84,7 +84,7 @@ export interface EnsureUserResult {
 export async function ensureEndUser(
   projectId: string,
   externalRef: string,
-  wallet: DepositWallet,
+  wallet: AddressSource,
 ): Promise<EnsureUserResult> {
   try {
     return await inTransaction(async (client) => {

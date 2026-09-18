@@ -205,7 +205,7 @@ test('a payment whose sweep failed can be swept again', async () => {
   );
   await db.settlePayment(payment.id);
 
-  const find = async () => (await db.findSweepCandidates(500)).find((c) => c.paymentId === payment.id);
+  const find = async () => (await db.findSweepCandidates(1_000_000)).find((c) => c.paymentId === payment.id);
 
   const first = await db.planSweep(await find(), MERCHANT_WALLET);
   await db.recordFailure(first.id, 'node timed out');

@@ -75,7 +75,9 @@ async function settledPayment(amount) {
 }
 
 const candidateFor = async (paymentId) => {
-  const all = await findSweepCandidates(500);
+  // Oldest first, and the development database keeps every earlier run's
+  // payments: look past all of them, not just the first page.
+  const all = await findSweepCandidates(1_000_000);
   return all.find((c) => c.paymentId === paymentId);
 };
 

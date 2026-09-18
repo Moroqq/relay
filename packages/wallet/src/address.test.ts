@@ -9,6 +9,7 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import tronwebPkg from 'tronweb';
 
 import {
+  DepositAddresses,
   DepositWallet,
   addressFromPrivateKey,
   decodeAddress,
@@ -136,4 +137,28 @@ test('addressFromPrivateKey agrees with TronWeb on random keys', () => {
     const key = secp256k1.utils.randomSecretKey();
     assert.equal(addressFromPrivateKey(key), TronWeb.address.fromPrivateKey(bytesToHex(key)));
   }
+});
+
+test('the public half derives the same deposit addresses as the mnemonic, and cannot sign', () => {
+  const wallet = DepositWallet.fromMnemonic(TEST_MNEMONIC);
+  const addresses = DepositAddresses.fromXpub(wallet.accountXpub());
+  for (const index of [0, 1, 2, 19, 4096, 2 ** 31 - 1]) {
+    assert.deepEqual(addresses.deriveAddress(index), wallet.deriveAddress(index));
+  }
+  assert.equal('derivePrivateKey' in addresses, false);
+});
+
+test('the public half refuses a private key, a key at the wrong depth, and garbage', () => {
+  const master = HDKey.fromMasterSeed(mnemonicToSeedSync(TEST_MNEMONIC, ''));
+  const account = master.derive("m/44'/195'/0'");
+  // Pasting the private half by mistake must not quietly work.
+  assert.throws(() => DepositAddresses.fromXpub(account.privateExtendedKey), /PRIVATE/);
+  assert.throws(() => DepositAddresses.fromXpub(master.derive("m/44'/195'").publicExtendedKey), /depth 3/);
+  assert.throws(() => DepositAddresses.fromXpub('xpub-nonsense'), WalletError);
+});
+
+test('a wiped wallet can no longer derive keys', () => {
+  const wallet = DepositWallet.fromMnemonic(TEST_MNEMONIC);
+  wallet.wipe();
+  assert.throws(() => wallet.derivePrivateKey(0));
 });

@@ -47,6 +47,15 @@ export interface Summary {
   treasury: { usdt: string };
   merchants_owed: string;
   hot_wallet_short: boolean;
+  /** Whether the service that signs and sends is running and unlocked. */
+  sweeper: {
+    state: 'locked' | 'unlocked' | 'unknown';
+    since: string | null;
+    reported_at: string | null;
+    stale: boolean;
+    payouts: 'live' | 'dry_run' | null;
+    sweeps: 'live' | 'dry_run' | null;
+  };
 }
 
 export interface AuditEntry {

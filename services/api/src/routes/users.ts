@@ -16,12 +16,12 @@ import {
   serializeDeposit,
   EndUserError,
 } from '@relay/db';
-import type { DepositWallet } from '@relay/wallet';
+import type { AddressSource } from '@relay/wallet';
 
 import { ApiError, badRequest, notFound } from '../errors.ts';
 
 interface RouteOptions {
-  readonly wallet: DepositWallet;
+  readonly wallet: AddressSource;
 }
 
 const MAX_REF_LENGTH = 200;

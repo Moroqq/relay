@@ -5,7 +5,7 @@
  */
 
 import { formatAmount } from '@relay/core';
-import type { ConsolePayout, ConsoleSummary, OperatorRecord, AuditRecord } from '@relay/db';
+import type { ConsolePayout, ConsoleSummary, OperatorRecord, AuditRecord, ServiceStatus } from '@relay/db';
 
 const usdt = (units: bigint): string => formatAmount(units, 'USDT');
 
@@ -58,6 +58,28 @@ export function summaryView(s: ConsoleSummary) {
     merchants_owed: signed(s.merchantsOwedUnits, 'USDT'),
     // Approved payouts the hot wallet's booked balance cannot cover right now.
     hot_wallet_short: s.approvedUnsentUnits > s.hotWalletUsdtUnits,
+  };
+}
+
+/**
+ * Whether the sweeper is running and able to sign — the reason, when there is
+ * one, that approved payouts are not going out.
+ */
+export function sweeperView(status: ServiceStatus | null, now: number) {
+  if (status === null) {
+    return { state: 'unknown', since: null, reported_at: null, stale: true, payouts: null, sweeps: null };
+  }
+  const pollMs = typeof status.detail['poll_ms'] === 'number' ? status.detail['poll_ms'] : 30_000;
+  // It reports at the start of every pass. Three missed, or two minutes if
+  // passes are quick, and it is not merely busy.
+  const staleAfterMs = Math.max(3 * pollMs, 120_000);
+  return {
+    state: status.state,
+    since: status.since.toISOString(),
+    reported_at: status.updatedAt.toISOString(),
+    stale: now - status.updatedAt.getTime() > staleAfterMs,
+    payouts: status.detail['payouts'] === 'live' ? 'live' : 'dry_run',
+    sweeps: status.detail['sweeps'] === 'live' ? 'live' : 'dry_run',
   };
 }
 

@@ -29,9 +29,8 @@ export interface OperationalKey {
 export function deriveHotWallet(mnemonic: string): OperationalKey {
   const wallet = DepositWallet.fromMnemonic(mnemonic, { account: OPERATIONAL_ACCOUNT });
   const derived = wallet.deriveAddress(HOT_WALLET_INDEX);
-  return Object.freeze({
-    address: derived.address,
-    path: derived.path,
-    privateKey: wallet.derivePrivateKey(HOT_WALLET_INDEX),
-  });
+  const privateKey = wallet.derivePrivateKey(HOT_WALLET_INDEX);
+  // The account key is not needed again; only the one key it yielded is.
+  wallet.wipe();
+  return Object.freeze({ address: derived.address, path: derived.path, privateKey });
 }

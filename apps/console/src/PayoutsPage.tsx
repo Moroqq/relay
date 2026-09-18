@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { api, type Payout, type PayoutTab, type Summary } from './api.ts';
-import { age, money, shortAddress, STATE } from './format.ts';
+import { age, money, shortAddress, STATE, timestamp } from './format.ts';
 import { ApproveDialog, RejectDialog } from './Dialogs.tsx';
 import { PayoutDrawer } from './PayoutDrawer.tsx';
 
@@ -72,6 +72,7 @@ export function PayoutsPage({ canDecide, network, onSummary }: { canDecide: bool
         </div>
       </div>
 
+      <SignerNotice summary={summary} />
       <Ribbon summary={summary} />
 
       <div style={{ display: 'flex', gap: 20, padding: '18px 24px 0', borderBottom: '1px solid var(--line)', overflowX: 'auto' }}>
@@ -111,6 +112,48 @@ export function PayoutsPage({ canDecide, network, onSummary }: { canDecide: bool
       )}
       {decision?.kind === 'approve' && <ApproveDialog payout={decision.payout} network={network} onClose={() => setDecision(null)} onDone={decided} />}
       {decision?.kind === 'reject' && <RejectDialog payout={decision.payout} onClose={() => setDecision(null)} onDone={decided} />}
+    </div>
+  );
+}
+
+/**
+ * Why approved payouts might not be going out, said where the operator is
+ * looking when they wonder. Nothing is shown when all is well.
+ */
+function SignerNotice({ summary }: { summary: Summary | null }) {
+  const s = summary?.sweeper;
+  if (!s) return null;
+
+  let tone: string;
+  let title: string;
+  let body: string;
+  if (s.state === 'unknown') {
+    tone = 'var(--err)';
+    title = 'The sweeper has never reported';
+    body = 'Approved payouts are not sent and deposits are not swept until it is running.';
+  } else if (s.stale) {
+    tone = 'var(--err)';
+    title = 'The sweeper stopped reporting ' + age(s.reported_at!) + ' ago';
+    body = 'Approved payouts are not being sent. Check that it is running on the server.';
+  } else if (s.state === 'locked') {
+    tone = 'var(--warn)';
+    title = 'Signing is locked · since ' + timestamp(s.since!).slice(11, 16);
+    body = 'The keys are sealed after a restart. Approved payouts wait until someone unlocks them on the server with npm run keys:unlock.';
+  } else if (s.payouts === 'dry_run') {
+    tone = 'var(--info)';
+    title = 'Payouts are in test mode';
+    body = 'Approved payouts are signed but not sent. Sending is switched on in the server settings (PAYOUT_BROADCAST).';
+  } else {
+    return null;
+  }
+
+  return (
+    <div role="status" style={{ display: 'flex', gap: 10, alignItems: 'baseline', margin: '0 24px 16px', padding: '10px 12px', background: 'var(--raised)', border: '1px solid var(--line)', borderLeft: '2px solid ' + tone, borderRadius: 'var(--radius)' }}>
+      <span className="dot" style={{ background: tone, flex: '0 0 auto', transform: 'translateY(-1px)' }} />
+      <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+        <span style={{ color: 'var(--t1)', fontWeight: 500 }}>{title}.</span>{' '}
+        <span style={{ color: 'var(--t2)' }}>{body}</span>
+      </div>
     </div>
   );
 }

@@ -14,3 +14,4 @@ export * from './payouts.ts';
 export * from './wallets.ts';
 export * from './operators.ts';
 export * from './console-queries.ts';
+export * from './service-status.ts';

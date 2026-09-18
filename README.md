@@ -27,7 +27,7 @@ Nile head and delivered to the merchant with a verifiable signature.
 | Energy rental | deferred — fees are burned in TRX for now |
 | TRX price from the WINkLink oracle | done |
 | End-to-end run with real testnet USDT | next — needs coins from a faucet |
-| Keys out of `.env` into a KMS | before mainnet |
+| Keys out of `.env`: public key for the API, sealed keystore + unlock for the sweeper | done |
 | Operations console: sign-in, payout queue, approve/reject, audit log (`@relay/console`, `apps/console`) | done |
 | Merchant dashboard, landing page | later |
 
@@ -494,8 +494,37 @@ this is not a place to trust our own arithmetic alone.
 
 The master mnemonic controls every deposit address the platform will ever
 issue. It never goes in this repository, in a log, in a screenshot, or in a
-chat message. In production it comes from a KMS or HSM. Anything generated
-during development is a throwaway — never reuse a development seed on mainnet.
+chat message. Anything generated during development is a throwaway — never
+reuse a development seed on mainnet.
+
+**Who holds what.** The server is a rented machine; whoever controls it can in
+principle read its disk and its memory. So each service holds the least it can:
+
+| | Holds | Can spend |
+|---|---|---|
+| API | `DEPOSIT_XPUB`, the public half of the deposit key | nothing |
+| Indexer | addresses only | nothing |
+| Console | operator logins | nothing — it approves, the sweeper signs |
+| Sweeper | the keystore; the keys only while unlocked | deposit addresses and the hot wallet |
+| Nobody on the server | the treasury key | — |
+
+**The keystore.** `npm run keys:seal` — run on your own computer, never the
+server — encrypts the mnemonic under a generated passphrase (scrypt, 128 MiB
+per guess; AES-256-GCM). The public keys it yields are bound into the file, so
+it cannot be relabelled to sign for someone else's hot wallet. Only the file
+goes to the server. `WALLET_MNEMONIC` is refused in production.
+
+**Locked after every start.** The sweeper starts with no keys. It keeps
+reconciling what is already on chain and reporting its state to the console,
+but signs nothing until `npm run keys:unlock` hands it the passphrase over a
+local, owner-only socket. Deposits are credited throughout — that is the
+indexer and the API, which hold no keys. `npm run keys:lock` wipes the keys
+from memory at once; the console shows which state signing is in.
+
+What this buys: a copied disk, backup or `.env` yields no keys. What it cannot
+buy: protection from someone who controls the running machine. Against that,
+the answer is how little is there — the treasury key never is, the hot wallet
+holds a float, deposit addresses are swept often.
 
 ## Layout
 

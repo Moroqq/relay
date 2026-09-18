@@ -89,11 +89,21 @@ export function isValidAddress(address: string): boolean {
 
 /** Derive the TRON address for a secp256k1 private key. */
 export function addressFromPrivateKey(privateKey: Uint8Array): string {
+  return addressFromPublicKey(secp256k1.getPublicKey(privateKey, false));
+}
+
+/** Derive the TRON address for a secp256k1 public key, compressed or not. */
+export function addressFromPublicKey(publicKey: Uint8Array): string {
   // Uncompressed public key is 65 bytes: a 0x04 tag followed by X and Y.
   // The hash covers X||Y only, so the tag is dropped.
-  const uncompressed = secp256k1.getPublicKey(privateKey, false);
+  const uncompressed = publicKey.length === 65 ? publicKey : secp256k1.Point.fromHex(publicKey).toBytes(false);
   const hashed = keccak_256(uncompressed.subarray(1));
   return encodeAddress(hashed.subarray(12));
+}
+
+/** Anything that can hand out deposit addresses: the full wallet, or its public half. */
+export interface AddressSource {
+  deriveAddress(index: number): DerivedAddress;
 }
 
 export interface DerivedAddress {
@@ -109,7 +119,7 @@ export interface DerivedAddress {
  * Private keys are derived on demand and returned to the caller rather than
  * cached, so that the only long-lived secret is the seed itself.
  */
-export class DepositWallet {
+export class DepositWallet implements AddressSource {
   readonly #master: HDKey;
   readonly #account: number;
 
@@ -122,15 +132,28 @@ export class DepositWallet {
     const trimmed = mnemonic.trim();
     assertValidMnemonic(trimmed);
     const seed = mnemonicToSeedSync(trimmed, options.passphrase ?? '');
-    return new DepositWallet(HDKey.fromMasterSeed(seed), options.account ?? 0);
+    const master = HDKey.fromMasterSeed(seed);
+    seed.fill(0); // the master key is all that is needed from here on
+    return new DepositWallet(master, options.account ?? 0);
   }
 
   /** `m/44'/195'/account'/0/index` */
   pathFor(index: number): string {
-    if (!Number.isInteger(index) || index < 0 || index >= 2 ** 31) {
-      throw new WalletError(`Address index must be a non-negative 31-bit integer, got ${index}`);
-    }
-    return `m/44'/${TRON_COIN_TYPE}'/${this.#account}'/0/${index}`;
+    return pathFor(this.#account, index);
+  }
+
+  /**
+   * The account's extended public key, `m/44'/195'/account'`. Enough to
+   * derive every deposit address of the account and nothing to spend from
+   * them — what a service that only hands out addresses should hold.
+   */
+  accountXpub(): string {
+    return this.#master.derive(`m/44'/${TRON_COIN_TYPE}'/${this.#account}'`).publicExtendedKey;
+  }
+
+  /** Overwrite the key material this object holds. It cannot be used afterwards. */
+  wipe(): void {
+    this.#master.wipePrivateData();
   }
 
   deriveAddress(index: number): DerivedAddress {
@@ -153,5 +176,68 @@ export class DepositWallet {
       throw new WalletError(`Derivation produced no private key at ${path}`);
     }
     return node.privateKey;
+  }
+}
+
+/** `m/44'/195'/account'/0/index` */
+function pathFor(account: number, index: number): string {
+  if (!Number.isInteger(index) || index < 0 || index >= 2 ** 31) {
+    throw new WalletError(`Address index must be a non-negative 31-bit integer, got ${index}`);
+  }
+  return `m/44'/${TRON_COIN_TYPE}'/${account}'/0/${index}`;
+}
+
+const HARDENED = 2 ** 31;
+
+/**
+ * Deposit addresses from the account's extended public key alone.
+ *
+ * Gives exactly the addresses the full wallet gives, and cannot sign for any
+ * of them. The merchant API holds this rather than the mnemonic: it is the
+ * most exposed service there is, and handing out addresses is all it does.
+ *
+ * One caution that comes with any extended public key: together with the
+ * private key of a single address under it, it yields the private keys of all
+ * of them. It is not a secret the way the mnemonic is, but it is not public
+ * either.
+ */
+export class DepositAddresses implements AddressSource {
+  readonly #account: HDKey;
+  readonly #accountIndex: number;
+
+  private constructor(account: HDKey, accountIndex: number) {
+    this.#account = account;
+    this.#accountIndex = accountIndex;
+  }
+
+  static fromXpub(xpub: string): DepositAddresses {
+    let key: HDKey;
+    try {
+      key = HDKey.fromExtendedKey(xpub.trim());
+    } catch {
+      throw new WalletError('Not a valid extended public key');
+    }
+    if (key.privateKey !== null) {
+      // Someone pasted the private half. Refuse it rather than quietly hold a
+      // key that can spend from every address.
+      throw new WalletError('That is an extended PRIVATE key. Give this service the public one (xpub…) only.');
+    }
+    if (key.depth !== 3 || key.index < HARDENED) {
+      throw new WalletError(`Expected the account-level key m/44'/${TRON_COIN_TYPE}'/account' (depth 3), got depth ${key.depth}`);
+    }
+    return new DepositAddresses(key, key.index - HARDENED);
+  }
+
+  get xpub(): string {
+    return this.#account.publicExtendedKey;
+  }
+
+  deriveAddress(index: number): DerivedAddress {
+    const path = pathFor(this.#accountIndex, index);
+    const node = this.#account.deriveChild(0).deriveChild(index);
+    if (node.publicKey === null) {
+      throw new WalletError(`Derivation produced no public key at ${path}`);
+    }
+    return Object.freeze({ path, index, address: addressFromPublicKey(node.publicKey) });
   }
 }

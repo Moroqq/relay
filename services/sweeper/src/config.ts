@@ -2,11 +2,21 @@
  * Sweeper configuration.
  */
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
 import { DEFAULT_SWEEP_POLICY, type SweepPolicy } from '@relay/core';
 import { DEFAULT_MAX_PRICE_AGE_SECONDS, USDT_TRX_FEEDS } from '@relay/tron';
-import { DepositWallet, deriveHotWallet, isValidAddress, type OperationalKey } from '@relay/wallet';
+import {
+  DepositAddresses,
+  isValidAddress,
+  parseKeystore,
+  type DepositWallet,
+  type Keystore,
+  type OperationalKey,
+} from '@relay/wallet';
 
-export interface SweeperConfig {
+export interface SweeperSettings {
   readonly fullNode: string;
   readonly apiKey: string | undefined;
   readonly usdtContract: string;
@@ -19,17 +29,20 @@ export interface SweeperConfig {
    */
   readonly treasuryAddress: string;
   /**
-   * The wallet payouts are signed by. Derived on the server, which is exactly
-   * why it should only ever hold a working float.
+   * The wallet payouts are signed from. Its key is on the server, which is
+   * exactly why it should only ever hold a working float.
    */
-  readonly hotWallet: OperationalKey;
+  readonly hotWalletAddress: string;
+  /** The account key deposit addresses come from — the same one the API holds. */
+  readonly depositXpub: string;
+  /** Where the signing keys come from. See KeySource. */
+  readonly keySource: KeySource;
   /**
    * Payouts are broadcast only when PAYOUT_BROADCAST is exactly "true" —
    * independently of sweeps, because this is the one flow that sends money to
    * addresses we do not own.
    */
   readonly payoutsDryRun: boolean;
-  readonly wallet: DepositWallet;
   readonly policy: SweepPolicy;
   /**
    * The WINkLink USDT/TRX price feed, as its proxy address.
@@ -53,6 +66,23 @@ export interface SweeperConfig {
   readonly dryRun: boolean;
   readonly requiredConfirmations: number;
 }
+
+/**
+ * A keystore file the operator unlocks after each start, or — for development
+ * only — the mnemonic in the environment.
+ */
+export type KeySource =
+  | { readonly kind: 'keystore'; readonly path: string; readonly keystore: Keystore; readonly controlSocket: string }
+  | { readonly kind: 'environment'; readonly mnemonic: string };
+
+/** What signing needs, present only while the keys are unlocked. */
+export interface SigningKeys {
+  readonly wallet: DepositWallet;
+  readonly hotWallet: OperationalKey;
+}
+
+/** Settings plus unlocked keys: what building and signing a transaction takes. */
+export type SweeperConfig = SweeperSettings & SigningKeys;
 
 function intEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -83,15 +113,6 @@ function requireTreasury(): string {
 }
 
 /**
- * Derive the hot wallet and cross-check it against the configured address.
- *
- * The indexer needs the hot wallet's address to recognise refills, and it
- * deliberately does not hold the mnemonic. So the address is configured
- * separately — and if it disagrees with what this mnemonic derives, one of the
- * two is wrong, and refusing to start is the only safe answer. Carrying on
- * would sign payouts from one wallet while the books watch another.
- */
-/**
  * The oracle to read. An explicit ORACLE_USDT_TRX wins; otherwise the official
  * feed for the configured network. An unknown network with no explicit feed is
  * refused rather than guessed at — Nile's feed on mainnet would be a real
@@ -110,34 +131,79 @@ function requirePriceFeed(): string {
   return USDT_TRX_FEEDS[network];
 }
 
-function requireHotWallet(): OperationalKey {
-  const hot = deriveHotWallet(requireEnv('WALLET_MNEMONIC'));
-  const configured = process.env['HOT_WALLET_ADDRESS']?.trim();
-
-  if (configured === undefined || configured === '') {
-    throw new Error(
-      'HOT_WALLET_ADDRESS is not set. This mnemonic derives ' + hot.address +
-        ' at ' + hot.path + ' — set HOT_WALLET_ADDRESS to that, then fund it with TRX and a USDT float.',
-    );
-  }
-  if (configured !== hot.address) {
-    throw new Error(
-      'HOT_WALLET_ADDRESS is ' + configured + ' but WALLET_MNEMONIC derives ' + hot.address +
-        '. One of them is wrong; refusing to start rather than sign from a wallet the books are not watching.',
-    );
-  }
-  return hot;
+function requireAddress(name: string): string {
+  const address = requireEnv(name);
+  if (!isValidAddress(address)) throw new Error(name + ' is not a valid TRON address: ' + address);
+  return address;
 }
 
-export function loadSweeperConfig(): SweeperConfig {
+function requireDepositXpub(): string {
+  const xpub = requireEnv('DEPOSIT_XPUB');
+  DepositAddresses.fromXpub(xpub); // throws, with a reason, on anything but an account-level public key
+  return xpub;
+}
+
+/** Named pipe on Windows, a socket beside the keystore elsewhere. */
+function defaultControlSocket(keystorePath: string): string {
+  return process.platform === 'win32'
+    ? '\\\\.\\pipe\\relay-sweeper-keys'
+    : path.join(path.dirname(path.resolve(keystorePath)), 'sweeper.sock');
+}
+
+/**
+ * Where the signing keys will come from.
+ *
+ * With KEYSTORE_PATH the file is read and checked now, before anyone is asked
+ * for a passphrase: a keystore for different addresses than the ones this
+ * deployment hands out and watches is a configuration error, and finding it at
+ * three in the morning after typing the passphrase helps nobody.
+ *
+ * The mnemonic in the environment is for development and is refused in
+ * production, where it would sit on the server's disk in the clear.
+ */
+function requireKeySource(): KeySource {
+  const keystorePath = process.env['KEYSTORE_PATH']?.trim();
+  if (keystorePath) {
+    let text: string;
+    try {
+      text = readFileSync(keystorePath, 'utf8');
+    } catch (error) {
+      throw new Error('KEYSTORE_PATH cannot be read: ' + (error as Error).message);
+    }
+    const keystore = parseKeystore(text);
+    const hot = requireEnv('HOT_WALLET_ADDRESS');
+    if (keystore.hotWallet !== hot) {
+      throw new Error('The keystore signs for hot wallet ' + keystore.hotWallet + ' but HOT_WALLET_ADDRESS is ' + hot + '. One of them is wrong.');
+    }
+    if (keystore.depositXpub !== requireEnv('DEPOSIT_XPUB')) {
+      throw new Error('The keystore is for different deposit addresses than DEPOSIT_XPUB. Sweeps would sign for addresses the API never handed out.');
+    }
+    return {
+      kind: 'keystore',
+      path: keystorePath,
+      keystore,
+      controlSocket: process.env['KEYS_SOCKET']?.trim() || defaultControlSocket(keystorePath),
+    };
+  }
+
+  const mnemonic = process.env['WALLET_MNEMONIC']?.trim();
+  if (!mnemonic) throw new Error('Set KEYSTORE_PATH (production) or WALLET_MNEMONIC (development only). See .env.example.');
+  if (process.env['NODE_ENV'] === 'production') {
+    throw new Error('WALLET_MNEMONIC is refused in production: it would sit on the server in the clear. Seal it with `npm run keys:seal` and set KEYSTORE_PATH.');
+  }
+  return { kind: 'environment', mnemonic };
+}
+
+export function loadSweeperSettings(): SweeperSettings {
   return Object.freeze({
     fullNode: requireEnv('TRON_FULL_NODE'),
     apiKey: process.env['TRONGRID_API_KEY']?.trim() || undefined,
     usdtContract: requireEnv('USDT_CONTRACT'),
     treasuryAddress: requireTreasury(),
-    hotWallet: requireHotWallet(),
+    hotWalletAddress: requireAddress('HOT_WALLET_ADDRESS'),
+    depositXpub: requireDepositXpub(),
+    keySource: requireKeySource(),
     payoutsDryRun: process.env['PAYOUT_BROADCAST'] !== 'true',
-    wallet: DepositWallet.fromMnemonic(requireEnv('WALLET_MNEMONIC')),
     policy: {
       maxFeeBps: BigInt(intEnv('SWEEP_MAX_FEE_BPS', Number(DEFAULT_SWEEP_POLICY.maxFeeBps))),
       minValueUnits: BigInt(intEnv('SWEEP_MIN_UNITS', Number(DEFAULT_SWEEP_POLICY.minValueUnits))),

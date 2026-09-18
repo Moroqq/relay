@@ -33,7 +33,12 @@
     "console:create-operator": "node scripts/create-operator.mjs",
     "console:new-key": "node scripts/new-console-key.mjs",
     "console:web:build": "npm run build --workspace @relay/console-web",
-    "console:web:dev": "npm run dev --workspace @relay/console-web"
+    "console:web:dev": "npm run dev --workspace @relay/console-web",
+    "keys:seal": "node scripts/keys-seal.mjs",
+    "keys:unlock": "node scripts/keys-control.mjs unlock",
+    "keys:lock": "node scripts/keys-control.mjs lock",
+    "keys:status": "node scripts/keys-control.mjs status",
+    "wallet:public-keys": "node scripts/hot-wallet-address.mjs"
   },
   "devDependencies": {
     "@ethereumjs/common": "^10.1.3",
