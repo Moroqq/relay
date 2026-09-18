@@ -15,3 +15,5 @@ export * from './wallets.ts';
 export * from './operators.ts';
 export * from './console-queries.ts';
 export * from './service-status.ts';
+export * from './access-requests.ts';
+export * from './merchant-accounts.ts';

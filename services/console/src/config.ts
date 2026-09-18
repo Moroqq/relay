@@ -36,6 +36,11 @@ export interface ConsoleConfig {
    * which is all the tests need.
    */
   readonly webDir: string | null;
+  /**
+   * Where merchants open their invitation links: the portal's /app/ page as
+   * the public sees it, e.g. https://relay.example/app/.
+   */
+  readonly portalUrl: string;
 }
 
 function intEnv(name: string, fallback: number): number {
@@ -77,5 +82,6 @@ export function loadConsoleConfig(): ConsoleConfig {
     allowedOrigin: process.env['CONSOLE_ORIGIN']?.trim() || 'http://127.0.0.1:' + port,
     network: process.env['TRON_NETWORK']?.trim() || 'nile',
     webDir: webDir(),
+    portalUrl: process.env['PORTAL_URL']?.trim() || 'http://127.0.0.1:5174/app/',
   });
 }

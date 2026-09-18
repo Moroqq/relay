@@ -27,6 +27,8 @@ export const ID_PREFIXES = {
   deposit: 'DEP',
   payout: 'PYT',
   operator: 'OPR',
+  merchantUser: 'MUS',
+  accessRequest: 'REQ',
   payment: 'PAY',
   apiKey: 'AKY',
   webhookDelivery: 'WHD',

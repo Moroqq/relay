@@ -173,6 +173,8 @@ export async function revokeSession(tokenHash: string): Promise<void> {
 
 export interface AuditEntry {
   readonly operatorId: string | null;
+  /** Set instead of operatorId when a merchant, signed in to the portal, did it. */
+  readonly merchantUserId?: string | null;
   readonly action: string;
   readonly subjectType?: string | null;
   readonly subjectId?: string | null;
@@ -182,8 +184,8 @@ export interface AuditEntry {
 
 export async function writeAudit(entry: AuditEntry): Promise<void> {
   await getPool().query(
-    `INSERT INTO audit_log (operator_id, action, subject_type, subject_id, detail, ip)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6)`,
+    `INSERT INTO audit_log (operator_id, action, subject_type, subject_id, detail, ip, merchant_user_id)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
     [
       entry.operatorId,
       entry.action,
@@ -191,6 +193,7 @@ export async function writeAudit(entry: AuditEntry): Promise<void> {
       entry.subjectId ?? null,
       JSON.stringify(entry.detail ?? {}),
       entry.ip ?? null,
+      entry.merchantUserId ?? null,
     ],
   );
 }

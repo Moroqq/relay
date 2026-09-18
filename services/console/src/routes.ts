@@ -5,6 +5,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   approvePayout,
+  countNewAccessRequests,
   findPayout,
   isPayoutTab,
   listAudit,
@@ -31,6 +32,7 @@ export function registerConsoleRoutes(app: FastifyInstance): void {
   app.get('/admin/api/summary', async () => ({
     ...summaryView(await readConsoleSummary()),
     sweeper: sweeperView(await readServiceStatus('sweeper'), Date.now()),
+    requests_new: await countNewAccessRequests(),
   }));
 
   app.get<{ Querystring: { tab?: string } }>('/admin/api/payouts', async (request) => {

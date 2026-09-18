@@ -27,7 +27,7 @@ let projectId;
 
 before(async () => {
   app = buildConsoleServer({
-    port: 3100, host: '127.0.0.1', secretKey: SECRET_KEY, secureCookies: false, allowedOrigin: ORIGIN, network: 'nile', webDir: null,
+    port: 3100, host: '127.0.0.1', secretKey: SECRET_KEY, secureCookies: false, allowedOrigin: ORIGIN, network: 'nile', webDir: null, portalUrl: 'http://127.0.0.1:5174/app/',
   });
   const merchantId = newId('merchant');
   projectId = newId('project');
@@ -271,7 +271,7 @@ test('the console pages load without a session, under a policy that runs only th
   await fs.writeFile(path.join(dir, 'index.html'), '<!doctype html><div id="root"></div>');
   await fs.writeFile(path.join(dir, 'assets', 'index-abc123.js'), 'export {};');
   const web = buildConsoleServer({
-    port: 3100, host: '127.0.0.1', secretKey: SECRET_KEY, secureCookies: false, allowedOrigin: ORIGIN, network: 'nile', webDir: dir,
+    port: 3100, host: '127.0.0.1', secretKey: SECRET_KEY, secureCookies: false, allowedOrigin: ORIGIN, network: 'nile', webDir: dir, portalUrl: 'http://127.0.0.1:5174/app/',
   });
   try {
     const page = await web.inject({ method: 'GET', url: '/admin/' });

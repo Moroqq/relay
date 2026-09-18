@@ -30,6 +30,9 @@
     },
     {
       "path": "./services/console"
+    },
+    {
+      "path": "./services/portal"
     }
   ]
 }

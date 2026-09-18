@@ -13,6 +13,7 @@ import { clearedSessionCookie, readSessionCookie, sessionCookie } from './cookie
 import { login } from './login.ts';
 import { operatorView } from './views.ts';
 import { registerConsoleRoutes } from './routes.ts';
+import { registerRequestRoutes } from './requests.ts';
 
 export { ConsoleError };
 
@@ -132,6 +133,7 @@ export function buildConsoleServer(config: ConsoleConfig, options: { logger?: bo
     scope.get('/admin/api/me', async (request) => ({ operator: operatorView(request.operator), network: config.network }));
 
     registerConsoleRoutes(scope);
+    registerRequestRoutes(scope, config);
   });
 
   if (config.webDir) {
