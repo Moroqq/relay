@@ -38,7 +38,9 @@
     "keys:unlock": "node scripts/keys-control.mjs unlock",
     "keys:lock": "node scripts/keys-control.mjs lock",
     "keys:status": "node scripts/keys-control.mjs status",
-    "wallet:public-keys": "node scripts/hot-wallet-address.mjs"
+    "wallet:public-keys": "node scripts/hot-wallet-address.mjs",
+    "landing:dev": "npm run dev --workspace @relay/landing",
+    "landing:build": "npm run build --workspace @relay/landing"
   },
   "devDependencies": {
     "@ethereumjs/common": "^10.1.3",

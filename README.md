@@ -29,7 +29,8 @@ Nile head and delivered to the merchant with a verifiable signature.
 | End-to-end run with real testnet USDT | next — needs coins from a faucet |
 | Keys out of `.env`: public key for the API, sealed keystore + unlock for the sweeper | done |
 | Operations console: sign-in, payout queue, approve/reject, audit log (`@relay/console`, `apps/console`) | done |
-| Merchant dashboard, landing page | later |
+| Landing page (`apps/landing`) | built from the design file; demo figures to replace before launch |
+| Merchant dashboard | later |
 
 ## Getting started
 
@@ -322,6 +323,31 @@ inline code, nowhere to post a form. For work on the screens,
 `npm run console:web:dev` serves them with hot reload and forwards API calls;
 start the console with `CONSOLE_ORIGIN=http://localhost:5173` so it accepts
 changes arriving that way.
+
+## The landing page
+
+`apps/landing` is the public site, built from `Relay Landing.dc.html` in the
+design handoff: hero with the coin field and fee calculator, the payment path,
+a trace, assets, infrastructure, an API sample. It is static files.
+
+```bash
+npm run landing:dev      # http://127.0.0.1:5174
+npm run landing:build    # into apps/landing/dist
+```
+
+Behind the header and hero is a field of monospace characters drawn by one
+WebGL2 fragment shader. Faint clouds drift across it; around the cursor the
+characters light up in USDT teal and some turn into hash digits that re-roll.
+It dims behind the headline and the figures so they stay readable, and it is
+skipped entirely on touch screens, while the hero is off screen, and without
+WebGL2. With reduced motion the clouds stand still. The coins are pushed
+aside by the cursor and spring back; click one to label it.
+
+Before the site is public, replace what `src/content.ts` marks DEMO: the
+partner names, the calculator's rates (0.5% + 1.10 is the design file's
+placeholder, not Relay's pricing), the live activity feed and the
+infrastructure statuses. The images are the handoff's, re-encoded as WebP at
+the same size (2.9 MB down to 0.4 MB).
 
 ## Decisions worth knowing
 
